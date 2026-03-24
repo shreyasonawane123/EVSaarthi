@@ -1,0 +1,8 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom transitions and resets */
+* {
+  transition: all 0.2s ease;
+}
