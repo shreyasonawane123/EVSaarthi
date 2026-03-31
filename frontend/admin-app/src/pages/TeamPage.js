@@ -375,14 +375,14 @@ const TeamPage = () => {
               <CircularProgress style={{ color: "#EAB308" }} size={28} />
               <span style={{ color: "#6B7280", fontSize: 14 }}>Loading team...</span>
             </div>
-          ) : admins.length === 0 ? (
+          ) : admins.filter(a => a.role !== "superadmin").length === 0 ? (
             <div style={{ padding: 64, textAlign: "center" }}>
               <GroupIcon style={{ fontSize: 64, color: "#D1D5DB", marginBottom: 16 }} />
               <p style={{ fontSize: 16, fontWeight: 700, color: "#374151", margin: "0 0 6px" }}>
-                You are the only admin
+                No admins found
               </p>
               <p style={{ fontSize: 13, color: "#9CA3AF", margin: 0 }}>
-                Add teammates or sir as admins using the button above.
+                Add teammates as admins using the button above.
               </p>
             </div>
           ) : (
@@ -401,13 +401,15 @@ const TeamPage = () => {
                 </tr>
               </thead>
               <tbody>
-                {admins.map((a, i) => {
+                {admins
+                  .filter(a => a.role !== "superadmin")
+                  .map((a, i, filtered) => {
                   // "You" detection: match by display name (best heuristic available in iframe context)
                   const isYou = a.name === currentUser?.displayName;
                   return (
                     <tr
                       key={a.uid}
-                      style={{ borderBottom: i < admins.length - 1 ? "1px solid #F3F4F6" : "none" }}
+                      style={{ borderBottom: i < filtered.length - 1 ? "1px solid #F3F4F6" : "none" }}
                       onMouseEnter={(e) => e.currentTarget.style.background = "#FAFAFA"}
                       onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
                     >
@@ -486,9 +488,9 @@ const TeamPage = () => {
         </div>
 
         {/* Count */}
-        {!fetching && admins.length > 0 && (
+        {!fetching && admins.filter(a => a.role !== "superadmin").length > 0 && (
           <p style={{ fontSize: 12, color: "#9CA3AF", marginTop: 10, textAlign: "right" }}>
-            {admins.length} admin{admins.length !== 1 ? "s" : ""} total
+            {admins.filter(a => a.role !== "superadmin").length} admin{admins.filter(a => a.role !== "superadmin").length !== 1 ? "s" : ""} total
           </p>
         )}
       </div>

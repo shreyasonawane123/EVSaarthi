@@ -1,0 +1,21 @@
+{
+  "copResults": {
+    "houseNumber": "12",
+    "houseName": "",
+    "poi": "",
+    "street": "Prabhat Nagar Road",
+    "subSubLocality": "",
+    "subLocality": "Laxman Nagar",
+    "locality": "Baner",
+    "village": "",
+    "subDistrict": "Pune City",
+    "district": "Pune District",
+    "city": "Pune",
+    "state": "Maharashtra",
+    "pincode": "411045",
+    "formattedAddress": "12, Prabhat Nagar Road, Laxman Nagar, Baner, Pune City, Pune District, Pune, Maharashtra, 411045",
+    "eLoc": "GRD71N",
+    "geocodeLevel": "houseNumber",
+    "confidenceScore": 0.8
+  }
+}

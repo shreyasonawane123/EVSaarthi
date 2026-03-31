@@ -10,6 +10,108 @@ const verifyToken = require("../middleware/verifyToken");
 const verifyAdmin = require("../middleware/verifyAdmin");
 
 // ─────────────────────────────────────────────────────────────────────────────
+// MAPPLS GEOCODING HELPER
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Simple in-memory cache for the Mappls OAuth token to avoid rate limits
+let cachedMapplsToken = null;
+let tokenExpiryTime = 0;
+
+/**
+ * Fetch a Bearer token from Mappls using Client ID and Secret.
+ * Tokens are usually valid to be cached, so we cache it in memory.
+ */
+async function getMapplsToken() {
+  if (cachedMapplsToken && Date.now() < tokenExpiryTime) {
+    return cachedMapplsToken;
+  }
+  
+  const clientId = process.env.MAPPLS_CLIENT_ID;
+  const clientSecret = process.env.MAPPLS_CLIENT_SECRET;
+  
+  if (!clientId || !clientSecret) {
+    console.warn("[geocode] MAPPLS_CLIENT_ID or MAPPLS_CLIENT_SECRET not set in .env");
+    return null;
+  }
+
+  try {
+    const params = new URLSearchParams();
+    params.append('grant_type', 'client_credentials');
+    params.append('client_id', clientId);
+    params.append('client_secret', clientSecret);
+
+    const res = await axios.post('https://outpost.mappls.com/api/security/oauth/token', params, {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      timeout: 10000
+    });
+
+    if (res.data && res.data.access_token) {
+      cachedMapplsToken = res.data.access_token;
+      // Expires in seconds, subtract 5 mins (300s) buffer
+      const expiresIn = res.data.expires_in || 86400; 
+      tokenExpiryTime = Date.now() + (expiresIn - 300) * 1000;
+      console.log("[geocode] ✅ Successfully generated Mappls OAuth Bearer Token");
+      return cachedMapplsToken;
+    }
+  } catch (err) {
+    console.error("[geocode] ❌ Failed to get Mappls OAuth token:", err.response?.data || err.message);
+  }
+  return null;
+}
+
+/**
+ * Geocode a full address using the Mappls REST API as requested.
+ * Returns { lat, lng } on success, or null on failure.
+ */
+async function geocodeAddress(address, city, state) {
+  const fullAddress = [address, city, state, "India"]
+    .map(s => (s || "").trim())
+    .filter(Boolean)
+    .join(", ");
+
+  const token = await getMapplsToken();
+  if (!token) {
+    console.warn("[geocode] Cannot geocode because Mappls OAuth token is missing.");
+    return null;
+  }
+
+  try {
+    const url = `https://atlas.mappls.com/api/places/geocode`;
+    const response = await axios.get(url, {
+      params: { address: fullAddress },
+      headers: { 
+        "Authorization": `bearer ${token}`,
+        "User-Agent": "EVSaarthiAdmin/1.0" 
+      },
+      timeout: 10000,
+    });
+
+    const data = response.data;
+    
+    // Mappls Geocoding API returns a single object in `copResults`
+    if (data && data.copResults) {
+      const r = data.copResults;
+      const parsedLat = parseFloat(r.latitude || r.lat || 0);
+      const parsedLng = parseFloat(r.longitude || r.lng || 0);
+      
+      if (!isNaN(parsedLat) && !isNaN(parsedLng) && parsedLat !== 0) {
+        console.log(`[geocode] ✅ "${fullAddress}" → ${parsedLat}, ${parsedLng}`);
+        return { lat: parsedLat, lng: parsedLng };
+      }
+    }
+    
+    console.warn(`[geocode] ⚠️  No results for: "${fullAddress}"`);
+    return null;
+  } catch (err) {
+    console.error(`[geocode] ❌ Error for "${fullAddress}":`, err.response?.status || 500, err.response?.data || err.message);
+    return null;
+  }
+}
+
+/** Wait helper */
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+// ─────────────────────────────────────────────────────────────────────────────
 // STATION ROUTES
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -38,7 +140,7 @@ router.get("/stations", async (req, res) => {
 });
 
 // POST /api/admin/stations/add
-// Add a new charging station + auto-geocode lat/lng via Mappls
+// Add a new charging station. Auto-geocodes via OpenStreetMap if lat/lng absent.
 router.post("/stations/add", verifyToken, verifyAdmin, async (req, res) => {
   const {
     name,
@@ -48,7 +150,7 @@ router.post("/stations/add", verifyToken, verifyAdmin, async (req, res) => {
     connectorTypes,
     totalSlots,
     pricePerUnit,
-    upiSupported,
+    paymentMethods,
   } = req.body;
 
   // Validate required fields
@@ -64,41 +166,116 @@ router.post("/stations/add", verifyToken, verifyAdmin, async (req, res) => {
   const slots = Number(totalSlots);
 
   try {
+    // 🛑 DUPLICATE PREVENTION
+    const duplicateSnapshot = await db.collection("stations")
+      .where("name", "==", name.trim())
+      .where("city", "==", city.trim())
+      .get();
+
+    if (!duplicateSnapshot.empty) {
+      return res.status(400).json({
+        error: "Duplicate station",
+        message: `Station with name ${name} already exists in ${city}. Please verify before adding.`
+      });
+    }
+
+    // 📍 AUTO-GEOCODE: if frontend didn't supply valid lat/lng, do it server-side
+    let lat = Number(req.body.lat) || 0;
+    let lng = Number(req.body.lng) || 0;
+
+    if (!lat || !lng) {
+      console.log(`[admin-service] Geocoding "${name}" at "${address}, ${city}, ${state}"...`);
+      const coords = await geocodeAddress(address, city, state);
+      if (coords) {
+        lat = coords.lat;
+        lng = coords.lng;
+      } else {
+        console.warn(`[admin-service] Geocoding failed for "${name}" — saving with lat=0, lng=0`);
+      }
+    }
+
     const now = admin.firestore.FieldValue.serverTimestamp();
 
     const stationData = {
-      name          : name.trim(),
-      address       : address.trim(),
-      city          : city.trim(),
-      state         : state.trim(),
+      name: name.trim(),
+      address: address.trim(),
+      city: city.trim(),
+      state: state.trim(),
       connectorTypes,
-      totalSlots    : slots,
+      totalSlots: slots,
       availableSlots: slots,
-      status        : "open",
-      pricePerUnit  : Number(pricePerUnit),
-      upiSupported  : Boolean(upiSupported),
-      rating        : 0,
-      isActive      : true,
-      lat           : Number(req.body.lat) || 0,
-      lng           : Number(req.body.lng) || 0,
-      addedBy       : req.uid,
-      lastUpdatedBy : req.uid,
-      createdAt     : now,
-      updatedAt     : now,
+      status: "open",
+      pricePerUnit: Number(pricePerUnit),
+      paymentMethods: Array.isArray(paymentMethods) ? paymentMethods : ["UPI"],
+      rating: 0,
+      isActive: true,
+      lat,
+      lng,
+      addedBy: req.uid,
+      lastUpdatedBy: req.uid,
+      createdAt: now,
+      updatedAt: now,
     };
 
     const stationRef = await db.collection("stations").add(stationData);
-    const stationId  = stationRef.id;
+    const stationId = stationRef.id;
 
     res.json({
-      success  : true,
+      success: true,
       stationId,
-      message  : "Station added successfully",
-      coords   : { lat: stationData.lat, lng: stationData.lng },
+      message: "Station added successfully",
+      geocoded: lat !== 0 && lng !== 0,
+      coords: { lat, lng },
     });
   } catch (error) {
     console.error("[admin-service] Add station error:", error.message);
     res.status(500).json({ error: "Failed to add station", details: error.message });
+  }
+});
+
+// POST /api/admin/stations/geocode-missing
+// Batch-geocodes all stations where lat=0 or lng=0 and updates them in Firestore
+router.post("/stations/geocode-missing", verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    const snapshot = await db.collection("stations").get();
+    const missing = snapshot.docs.filter(doc => {
+      const d = doc.data();
+      return !d.lat || !d.lng;
+    });
+
+    if (missing.length === 0) {
+      return res.json({ success: true, fixed: 0, failed: 0, message: "No stations with missing coordinates" });
+    }
+
+    let fixed = 0;
+    let failed = 0;
+    const results = [];
+
+    for (const doc of missing) {
+      const d = doc.data();
+      const coords = await geocodeAddress(d.address, d.city, d.state);
+      if (coords) {
+        await doc.ref.update({
+          lat: coords.lat,
+          lng: coords.lng,
+          lastUpdatedBy: req.uid,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        fixed++;
+        results.push({ id: doc.id, name: d.name, status: "fixed", ...coords });
+      } else {
+        failed++;
+        results.push({ id: doc.id, name: d.name, status: "failed" });
+      }
+      
+      // Delay 1 second to respect OpenStreetMap Nominatim usage policy
+      await sleep(1000);
+    }
+
+    res.json({ success: true, fixed, failed, total: missing.length, results });
+  } catch (error) {
+    console.error("[admin-service] Geocode-missing error:", error.message);
+    res.status(500).json({ error: "Failed to geocode missing stations", details: error.message });
   }
 });
 
@@ -129,7 +306,7 @@ router.put("/stations/:id", verifyToken, verifyAdmin, async (req, res) => {
     await stationRef.update({
       ...updates,
       lastUpdatedBy: req.uid,
-      updatedAt    : admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
     res.json({ success: true, message: "Station updated successfully" });
@@ -168,9 +345,9 @@ router.patch("/stations/:id/toggle", verifyToken, verifyAdmin, async (req, res) 
     }
     const newActive = !stationDoc.data().isActive;
     await stationRef.update({
-      isActive     : newActive,
+      isActive: newActive,
       lastUpdatedBy: req.uid,
-      updatedAt    : admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
     res.json({ success: true, isActive: newActive });
   } catch (error) {
@@ -182,7 +359,7 @@ router.patch("/stations/:id/toggle", verifyToken, verifyAdmin, async (req, res) 
 // PATCH /api/admin/stations/:id/slots
 // Update available slots and auto-recalculate status
 router.patch("/stations/:id/slots", verifyToken, verifyAdmin, async (req, res) => {
-  const { id }            = req.params;
+  const { id } = req.params;
   const { availableSlots } = req.body;
 
   if (availableSlots === undefined || availableSlots === null) {
@@ -204,8 +381,8 @@ router.patch("/stations/:id/slots", verifyToken, verifyAdmin, async (req, res) =
     await stationRef.update({
       availableSlots: slots,
       status,
-      lastUpdatedBy : req.uid,
-      updatedAt     : admin.firestore.FieldValue.serverTimestamp(),
+      lastUpdatedBy: req.uid,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
     res.json({ success: true, availableSlots: slots, status });
   } catch (error) {
@@ -259,10 +436,10 @@ router.get("/stats", verifyToken, verifyAdmin, async (req, res) => {
     res.json({
       success: true,
       stats: {
-        totalUsers    : usersSnap.size,
-        totalStations : stationsSnap.size,
+        totalUsers: usersSnap.size,
+        totalStations: stationsSnap.size,
         activeStations,
-        totalVehicles : vehiclesSnap.size,
+        totalVehicles: vehiclesSnap.size,
       },
     });
   } catch (error) {
@@ -322,8 +499,8 @@ router.post("/team/add", verifyToken, verifyAdmin, async (req, res) => {
       });
     }
 
-    const userDoc  = usersSnapshot.docs[0];
-    const uid      = userDoc.id;
+    const userDoc = usersSnapshot.docs[0];
+    const uid = userDoc.id;
     const userData = userDoc.data();
 
     // Step 2: Check if already an admin
@@ -336,10 +513,10 @@ router.post("/team/add", verifyToken, verifyAdmin, async (req, res) => {
     const now = admin.firestore.FieldValue.serverTimestamp();
     const adminData = {
       uid,
-      email   : userData.email,
-      name    : userData.name || "Unknown",
-      role    : "admin",
-      addedBy : req.uid,
+      email: userData.email,
+      name: userData.name || "Unknown",
+      role: "admin",
+      addedBy: req.uid,
       createdAt: now,
     };
     await db.collection("adminUsers").doc(uid).set(adminData);
@@ -347,7 +524,7 @@ router.post("/team/add", verifyToken, verifyAdmin, async (req, res) => {
     res.json({
       success: true,
       message: "Admin added successfully",
-      admin  : { uid, email: userData.email, name: userData.name, role: "admin" },
+      admin: { uid, email: userData.email, name: userData.name, role: "admin" },
     });
   } catch (error) {
     console.error("[admin-service] Add admin error:", error.message);
