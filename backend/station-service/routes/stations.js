@@ -1,7 +1,8 @@
 // backend/station-service/routes/stations.js
 const express = require("express");
 const router = express.Router();
-const { db } = require("../config/firebase");
+const { db, admin } = require("../config/firebase");
+const verifyToken = require("../middleware/verifyToken");
 
 // Haversine formula
 function getDistanceKm(lat1, lng1, lat2, lng2) {
@@ -89,6 +90,93 @@ router.get("/nearby", async (req, res) => {
   } catch (error) {
     console.error("[station-service] Get nearby stations error:", error.message);
     res.status(500).json({ error: "Failed to fetch nearby stations" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/stations/:id/reviews
+// Returns approved reviews for a station
+// ─────────────────────────────────────────────────────────────────────────────
+router.get("/:id/reviews", async (req, res) => {
+  try {
+    const reviewsSnapshot = await db
+      .collection("stations")
+      .doc(req.params.id)
+      .collection("reviews")
+      .where("status", "==", "approved")
+      .get();
+
+    const reviews = reviewsSnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      timestamp: doc.data().timestamp?.toDate?.().toISOString() || null,
+    }));
+
+    res.json({ success: true, reviews });
+  } catch (error) {
+    console.error("[station-service] Get reviews error:", error.message);
+    res.status(500).json({ error: "Failed to fetch reviews" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/stations/:id/reviews
+// Submits a new review (pending moderation)
+// ─────────────────────────────────────────────────────────────────────────────
+router.post("/:id/reviews", verifyToken, async (req, res) => {
+  const { rating, text, photoUrl, userLat, userLng, bookingId } = req.body;
+  const stationId = req.params.id;
+
+  if (!rating || !text) {
+    return res.status(400).json({ error: "Rating and text are required" });
+  }
+
+  try {
+    const stationRef = db.collection("stations").doc(stationId);
+    const stationDoc = await stationRef.get();
+    if (!stationDoc.exists) return res.status(404).json({ error: "Station not found" });
+
+    // GPS Verified logic (200m = 0.2km)
+    let verifiedVisit = false;
+    if (userLat && userLng) {
+      const station = stationDoc.data();
+      if (station.lat && station.lng) {
+        const distKm = getDistanceKm(userLat, userLng, station.lat, station.lng);
+        if (distKm <= 0.2) verifiedVisit = true;
+      }
+    }
+
+    // Booking Verified logic
+    if (!verifiedVisit) {
+      const bookingSnapshot = await db.collection("bookings")
+        .where("userId", "==", req.uid)
+        .where("stationId", "==", stationId)
+        .where("status", "==", "confirmed")
+        .limit(1)
+        .get();
+      
+      if (!bookingSnapshot.empty) verifiedVisit = true;
+    }
+
+    const reviewId = req.uid; // One review per user per station
+    const reviewData = {
+      userId: req.uid,
+      userName: req.email?.split('@')[0] || "User",
+      rating: Number(rating),
+      text,
+      photoUrl: photoUrl || null,
+      verifiedVisit,
+      bookingId: bookingId || null,
+      status: "pending",
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    await stationRef.collection("reviews").doc(reviewId).set(reviewData, { merge: true });
+    res.json({ success: true, message: "Review submitted for moderation", verifiedVisit });
+  } catch (error) {
+    console.error("[station-service] Submit review error:", error.message);
+    res.status(500).json({ error: "Failed to submit review" });
   }
 });
 

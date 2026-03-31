@@ -9,6 +9,7 @@ import {
   Group as GroupIcon,
   Logout as LogoutIcon,
   Menu as MenuIcon,
+  RateReview as RateReviewIcon,
 } from '@mui/icons-material';
 
 const AdminNavbar = () => {
@@ -26,6 +27,7 @@ const AdminNavbar = () => {
     { label: 'Overview',  path: '/admin',          exact: true,  icon: <DashboardIcon fontSize="small" /> },
     { label: 'Stations',  path: '/admin/stations',  exact: false, icon: <EvStationIcon fontSize="small" /> },
     { label: 'Users',     path: '/admin/users',     exact: false, icon: <PeopleIcon fontSize="small" /> },
+    { label: 'Reviews',   path: '/admin/reviews',    exact: false, icon: <RateReviewIcon fontSize="small" /> },
     // Team link — only rendered for superadmins
     ...(adminRole === 'superadmin'
       ? [{ label: 'Team', path: '/admin/team', exact: false, icon: <GroupIcon fontSize="small" /> }]

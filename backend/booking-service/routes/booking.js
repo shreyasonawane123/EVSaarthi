@@ -1,262 +1,127 @@
-// backend/booking-service/routes/booking.js
-// EV Saarthi — Booking Routes
-// POST   /api/booking/create
-// GET    /api/booking/my-bookings
-// PATCH  /api/booking/cancel/:bookingId
-// GET    /api/booking/:bookingId
-
-const express     = require("express");
-const router      = express.Router();
+const express = require("express");
+const router = express.Router();
+const Razorpay = require("razorpay");
+const crypto = require("crypto");
 const { db, admin } = require("../config/firebase");
 const verifyToken = require("../middleware/verifyToken");
 
+// ── Razorpay Setup ───────────────────────────────────────────────
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID || "rzp_test_SXwCfEf5EfAy8k",
+  key_secret: process.env.RAZORPAY_KEY_SECRET || "CyzezCv4toXmNUofZi5QmvO4",
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /api/booking/create
+// POST /payment/order
 // ─────────────────────────────────────────────────────────────────────────────
-router.post("/create", verifyToken, async (req, res) => {
-  const { stationId, slotDate, slotTime, duration } = req.body;
-
-  // Validate
-  if (!stationId || !slotDate || !slotTime || !duration) {
-    return res.status(400).json({
-      error: "Missing required fields: stationId, slotDate, slotTime, duration",
-    });
-  }
-
-  const durationNum = Number(duration);
-  if (![30, 60, 120].includes(durationNum)) {
-    return res.status(400).json({ error: "duration must be 30, 60, or 120 minutes" });
-  }
-
+router.post("/payment/order", verifyToken, async (req, res) => {
   try {
-    // 1. Get station
-    const stationRef = db.collection("stations").doc(stationId);
-    const stationDoc = await stationRef.get();
-    if (!stationDoc.exists) {
-      return res.status(404).json({ error: "Station not found" });
-    }
+    const { stationId, duration } = req.body;
+    const stationDoc = await db.collection("stations").doc(stationId).get();
+    if (!stationDoc.exists) return res.status(404).json({ error: "Station not found" });
     const station = stationDoc.data();
+    
+    if (station.availableSlots <= 0) return res.status(400).json({ error: "No slots" });
 
-    // 2. Check available slots
-    if (!station.isActive) {
-      return res.status(400).json({ error: "Station is not active" });
-    }
-    if (station.availableSlots <= 0) {
-      return res.status(400).json({ error: "No slots available at this station" });
-    }
-
-    // 3. Check for conflicting booking at same station, date, time
-    const conflictSnap = await db
-      .collection("bookings")
-      .where("stationId", "==", stationId)
-      .where("slotDate", "==", slotDate)
-      .where("slotTime", "==", slotTime)
-      .where("status", "==", "confirmed")
-      .get();
-
-    if (!conflictSnap.empty) {
-      return res.status(400).json({
-        error: "That time slot is already booked. Please choose a different time.",
-      });
-    }
-
-    // 4. Get user's vehicle info for the booking document
-    let vehicleModel   = "";
-    let connectorType  = "";
-    let batteryCapacity = 40; // default fallback kWh
-
-    const vehicleDoc = await db.collection("vehicles").doc(req.uid).get();
-    if (vehicleDoc.exists) {
-      const v = vehicleDoc.data();
-      vehicleModel    = `${v.vehicleBrand || ""} ${v.vehicleModel || ""}`.trim();
-      connectorType   = v.connectorType || "";
-      batteryCapacity = v.batteryCapacity ? Number(v.batteryCapacity) : 40;
-    }
-
-    // 5. Calculate total cost
-    // Formula: (duration / 60) * pricePerUnit * (batteryCapacity / 100)
-    const pricePerUnit = Number(station.pricePerUnit) || 10;
-    const totalCost    = parseFloat(
-      ((durationNum / 60) * pricePerUnit * (batteryCapacity / 100)).toFixed(2)
-    );
-
-    // 6. Create booking document
-    const now = admin.firestore.FieldValue.serverTimestamp();
-    const bookingData = {
-      userId        : req.uid,
-      stationId     : stationId,
-      stationName   : station.name   || "",
-      stationAddress: station.address || "",
-      stationCity   : station.city   || "",
-      slotDate,
-      slotTime,
-      duration      : durationNum,
-      status        : "confirmed",
-      vehicleModel,
-      connectorType,
-      totalCost,
-      createdAt     : now,
-      updatedAt     : now,
-    };
-
-    const bookingRef = await db.collection("bookings").add(bookingData);
-
-    // 7. Reduce station availableSlots by 1
-    const newSlots = station.availableSlots - 1;
-    const newStatus =
-      newSlots === 0 ? "full" : newSlots <= 2 ? "filling" : "open";
-
-    await stationRef.update({
-      availableSlots: newSlots,
-      status        : newStatus,
-      updatedAt     : now,
+    const totalCost = parseFloat(((Number(duration) / 60) * (Number(station.pricePerUnit) || 10)).toFixed(2));
+    const order = await razorpay.orders.create({
+      amount: Math.round(totalCost * 100),
+      currency: "INR",
+      receipt: `rcpt_${Date.now()}`,
     });
 
-    return res.status(201).json({
-      success  : true,
-      bookingId: bookingRef.id,
-      message  : "Slot booked successfully!",
-      booking  : {
-        bookingId: bookingRef.id,
-        ...bookingData,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-    });
+    res.json({ success: true, orderId: order.id, amount: order.amount, currency: order.currency, totalCost });
   } catch (error) {
-    console.error("[booking-service] Create booking error:", error.message);
-    res.status(500).json({ error: "Failed to create booking", details: error.message });
+    res.status(500).json({ error: error.message });
   }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /api/booking/my-bookings
-// Returns all bookings for the current user, sorted by createdAt desc
+// POST /payment/verify
+// ─────────────────────────────────────────────────────────────────────────────
+router.post("/payment/verify", verifyToken, async (req, res) => {
+  try {
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, stationId, slotDate, slotTime, duration } = req.body;
+
+    const body = razorpay_order_id + "|" + razorpay_payment_id;
+    const expected = crypto.createHmac("sha256", process.env.RAZORPAY_KEY_SECRET || "CyzezCv4toXmNUofZi5QmvO4").update(body).digest("hex");
+
+    if (expected !== razorpay_signature) return res.status(400).json({ error: "Invalid signature" });
+
+    const result = await db.runTransaction(async (transaction) => {
+      const stationRef = db.collection("stations").doc(stationId);
+      const stationDoc = await transaction.get(stationRef);
+      const station = stationDoc.data();
+
+      if (station.availableSlots <= 0) throw new Error("Station is full");
+
+      const bookingRef = db.collection("bookings").doc();
+      const now = admin.firestore.FieldValue.serverTimestamp();
+      const totalCost = parseFloat(((Number(duration) / 60) * (Number(station.pricePerUnit) || 10)).toFixed(2));
+
+      const bookingData = {
+        userId: req.uid, stationId, stationName: station.name || "", slotDate, slotTime,
+        duration: Number(duration), status: "confirmed", totalCost, razorpay_order_id, razorpay_payment_id, createdAt: now, updatedAt: now,
+      };
+
+      transaction.set(bookingRef, bookingData);
+      transaction.update(stationRef, { availableSlots: station.availableSlots - 1, updatedAt: now });
+
+      return { bookingId: bookingRef.id };
+    });
+
+    res.status(201).json({ success: true, booking: result });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Existing Routes
 // ─────────────────────────────────────────────────────────────────────────────
 router.get("/my-bookings", verifyToken, async (req, res) => {
   try {
-    const snapshot = await db
-      .collection("bookings")
-      .where("userId", "==", req.uid)
-      .get();
-
-    const bookings = snapshot.docs.map((doc) => ({
-      bookingId: doc.id,
-      ...doc.data(),
-      createdAt: doc.data().createdAt?.toDate?.().toISOString() || null,
-      updatedAt: doc.data().updatedAt?.toDate?.().toISOString() || null,
-    }));
-    
-    // Sort in memory to avoid requiring a Firebase composite index
-    bookings.sort((a, b) => {
-      const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-      const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-      return dateB - dateA;
-    });
-
+    const snapshot = await db.collection("bookings").where("userId", "==", req.uid).get();
+    const bookings = snapshot.docs.map(doc => ({ bookingId: doc.id, ...doc.data() }));
+    // Sort manually if index is missing
+    bookings.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
     res.json({ success: true, bookings });
-  } catch (error) {
-    console.error("[booking-service] Get my-bookings error:", error.message);
-    res.status(500).json({ error: "Failed to fetch bookings" });
+  } catch (e) { 
+    console.error("[my-bookings] Error:", e.message);
+    res.status(500).json({ error: e.message }); 
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PATCH /api/booking/cancel/:bookingId
-// Cancels a booking and restores the station slot
-// ─────────────────────────────────────────────────────────────────────────────
 router.patch("/cancel/:bookingId", verifyToken, async (req, res) => {
-  const { bookingId } = req.params;
-
   try {
-    const bookingRef = db.collection("bookings").doc(bookingId);
-    const bookingDoc = await bookingRef.get();
-
-    if (!bookingDoc.exists) {
-      return res.status(404).json({ error: "Booking not found" });
-    }
-
-    const booking = bookingDoc.data();
-
-    // 1. Verify booking belongs to the requesting user
-    if (booking.userId !== req.uid) {
-      return res.status(403).json({ error: "Not authorised to cancel this booking" });
-    }
-
-    // 2. Check it's still confirmed
-    if (booking.status !== "confirmed") {
-      return res.status(400).json({
-        error: `Cannot cancel a booking with status "${booking.status}"`,
-      });
-    }
-
+    const br = db.collection("bookings").doc(req.params.bookingId);
+    const bd = await br.get();
+    if (!bd.exists) return res.status(404).json({ error: "Booking not found" });
     const now = admin.firestore.FieldValue.serverTimestamp();
-
-    // 3. Update booking status
-    await bookingRef.update({ status: "cancelled", updatedAt: now });
-
-    // 4. Restore station slot
-    const stationRef = db.collection("stations").doc(booking.stationId);
-    const stationDoc = await stationRef.get();
-
-    if (stationDoc.exists) {
-      const station  = stationDoc.data();
-      const newSlots = (station.availableSlots || 0) + 1;
-      const newStatus =
-        newSlots === 0 ? "full" : newSlots <= 2 ? "filling" : "open";
-
-      await stationRef.update({
-        availableSlots: newSlots,
-        status        : newStatus,
-        updatedAt     : now,
-      });
+    await br.update({ status: "cancelled", updatedAt: now });
+    const sr = db.collection("stations").doc(bd.data().stationId);
+    const sd = await sr.get();
+    if (sd.exists) {
+      await sr.update({ availableSlots: (sd.data().availableSlots || 0) + 1, updatedAt: now });
     }
-
-    res.json({ success: true, message: "Booking cancelled successfully" });
-  } catch (error) {
-    console.error("[booking-service] Cancel booking error:", error.message);
-    res.status(500).json({ error: "Failed to cancel booking", details: error.message });
+    res.json({ success: true });
+  } catch (e) { 
+    console.error("[cancel] Error:", e.message);
+    res.status(500).json({ error: e.message }); 
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/booking/:bookingId
-// Returns a single booking — must belong to the requesting user
-// ─────────────────────────────────────────────────────────────────────────────
 router.get("/:bookingId", verifyToken, async (req, res) => {
-  const { bookingId } = req.params;
-
   try {
-    const bookingDoc = await db.collection("bookings").doc(bookingId).get();
-
-    if (!bookingDoc.exists) {
-      return res.status(404).json({ error: "Booking not found" });
-    }
-
-    const booking = bookingDoc.data();
-
-    if (booking.userId !== req.uid) {
-      return res.status(403).json({ error: "Not authorised to view this booking" });
-    }
-
-    res.json({
-      success: true,
-      booking: {
-        bookingId: bookingDoc.id,
-        ...booking,
-        createdAt: booking.createdAt?.toDate?.().toISOString() || null,
-        updatedAt: booking.updatedAt?.toDate?.().toISOString() || null,
-      },
-    });
-  } catch (error) {
-    console.error("[booking-service] Get booking error:", error.message);
-    res.status(500).json({ error: "Failed to fetch booking" });
+    const doc = await db.collection("bookings").doc(req.params.bookingId).get();
+    if (!doc.exists) return res.status(404).json({ error: "Not found" });
+    res.json({ success: true, booking: { bookingId: doc.id, ...doc.data() } });
+  } catch (e) { 
+    console.error("[get-booking] Error:", e.message);
+    res.status(500).json({ error: e.message }); 
   }
 });
 
-// Health check
-router.get("/health", (req, res) => {
-  res.json({ status: "ok", service: "booking-service", port: process.env.PORT || 5004 });
-});
+router.get("/health", (req, res) => res.json({ status: "ok" }));
 
 module.exports = router;

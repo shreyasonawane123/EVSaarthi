@@ -9,6 +9,7 @@ import {
   LocationOn as LocationIcon,
 } from "@mui/icons-material";
 import CircularProgress from "@mui/material/CircularProgress";
+import { Alert, Snackbar } from "@mui/material";
 
 function getDistanceKm(lat1, lng1, lat2, lng2) {
   const R = 6371;
@@ -116,6 +117,10 @@ const MapPage = () => {
   const [userLocation, setUserLocation] = useState(null);
   const [isDetectedLocation, setIsDetectedLocation] = useState(false);
   const [selectedStation, setSelectedStation] = useState(null);
+
+  // Snackbar state
+  const [snackbar, setSnackbar] = useState({ open: false, message: "", severity: "info" });
+  const showNotify = (message, severity = "info") => setSnackbar({ open: true, message, severity });
 
   const mapRef = useRef(null);
   const markersRef = useRef({});
@@ -309,13 +314,22 @@ const MapPage = () => {
         });
         setIsDetectedLocation(true);
       },
-      () => alert("Location access denied")
+      () => showNotify("Location access denied", "warning")
     );
   };
 
 
   return (
     <div style={{ height: "calc(100vh - 64px)", display: "flex" }}>
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={4000}
+        onClose={() => setSnackbar({ ...snackbar, open: false })}
+      >
+        <Alert onClose={() => setSnackbar({ ...snackbar, open: false })} severity={snackbar.severity}>
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
       {/* SIDEBAR */}
       <div
         style={{
@@ -552,6 +566,10 @@ const MapPage = () => {
           <MyLocationIcon />
         </button>
       </div>
+
+      <Snackbar open={snackbar.open} autoHideDuration={4000} onClose={() => setSnackbar({ ...snackbar, open: false })} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
+        <Alert severity={snackbar.severity} variant="filled" sx={{ width: '100%', fontWeight: 'bold' }}>{snackbar.message}</Alert>
+      </Snackbar>
     </div>
   );
 };

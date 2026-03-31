@@ -11,6 +11,7 @@ import {
 } from "@mui/icons-material";
 import { Switch, Modal, TextField, MenuItem, Checkbox, ListItemText, Select, InputLabel, FormControl, Chip, Tabs, Tab, Box, Typography, LinearProgress } from "@mui/material";
 import * as XLSX from "xlsx";
+import { Alert, Snackbar, Dialog, DialogTitle, DialogContent, DialogActions, Button } from "@mui/material";
 
 const API_GATEWAY = process.env.REACT_APP_API_GATEWAY_URL || "http://localhost:5000";
 const MAPPLS_KEY = "496b3b573470430656a3e7448c9a7f5b";
@@ -96,6 +97,9 @@ const StationsPage = () => {
   const [uploadingBulk, setUploadingBulk] = useState(false);
   const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0 });
   const [uploadSummary, setUploadSummary] = useState(null);
+  const [parsingErrors, setParsingErrors] = useState([]);
+  const [showErrorsDialog, setShowErrorsDialog] = useState(false);
+  const [activeStep, setActiveStep] = useState(0);
   const [geocodingMissing, setGeocodingMissing] = useState(false);
   const [geocodeConfirmPending, setGeocodeConfirmPending] = useState(false);
 
@@ -107,6 +111,14 @@ const StationsPage = () => {
   const [mapInitialized, setMapInitialized] = useState(false);
   const mapRef = useRef(null);
   const markerRef = useRef(null);
+
+  // Snackbar/Notification state
+  const [snackbar, setSnackbar] = useState({ open: false, message: "", severity: "info" });
+  const showNotify = (message, severity = "info") => setSnackbar({ open: true, message, severity });
+
+  // Custom Confirm Dialog state
+  const [confirmDialog, setConfirmDialog] = useState({ open: false, title: "", message: "", onConfirm: null });
+  const openConfirm = (title, message, onConfirm) => setConfirmDialog({ open: true, title, message, onConfirm });
 
   useEffect(() => {
     fetchStations();
@@ -136,28 +148,34 @@ const StationsPage = () => {
       fetchStations();
     } catch (e) {
       console.error(e);
-      alert("Failed to toggle station visibility");
+      showNotify("Failed to toggle station visibility", "error");
     }
   };
 
   const handleDelete = async (id, name) => {
-    if (!window.confirm(`Delete ${name}?\nThis cannot be undone.`)) return;
-    try {
-      const token = await currentUser.getIdToken();
-      await axios.delete(`${API_GATEWAY}/api/admin/stations/${id}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      fetchStations();
-    } catch (e) {
-      console.error(e);
-      alert("Failed to delete station");
-    }
+    openConfirm(
+      "Delete Station",
+      `Are you sure you want to delete ${name}? This cannot be undone.`,
+      async () => {
+        try {
+          const token = await currentUser.getIdToken();
+          await axios.delete(`${API_GATEWAY}/api/admin/stations/${id}`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          showNotify(`${name} deleted successfully`, "success");
+          fetchStations();
+        } catch (e) {
+          console.error(e);
+          showNotify("Failed to delete station", "error");
+        }
+      }
+    );
   };
 
   const handleAddSubmit = async (e) => {
     e.preventDefault();
     if (!formLat || !formLng) {
-      alert("Please find location on map before saving");
+      showNotify("Please find location on map before saving", "warning");
       return;
     }
     try {
@@ -188,7 +206,7 @@ const StationsPage = () => {
       fetchStations();
     } catch (e) {
       console.error(e);
-      alert("Failed to add station");
+      showNotify("Failed to add station", "error");
     }
   };
 
@@ -220,9 +238,10 @@ const StationsPage = () => {
 
       setIsEditModalOpen(false);
       fetchStations();
+      showNotify("Station updated successfully", "success");
     } catch (e) {
       console.error(e);
-      alert("Failed to edit station");
+      showNotify("Failed to edit station", "error");
     }
   };
 
@@ -236,81 +255,103 @@ const StationsPage = () => {
       const wb = XLSX.read(bstr, { type: "binary" });
       const wsname = wb.SheetNames[0];
       const ws = wb.Sheets[wsname];
-      const data = XLSX.utils.sheet_to_json(ws, { header: 1 });
+      const data = XLSX.utils.sheet_to_json(ws);
       
-      // Expected columns: name, address, city, state, connectorTypes, totalSlots, pricePerUnit, paymentMethods, lat, lng
-      const formatted = data.slice(1).filter(row => row[0]).map(row => ({
-        name: row[0],
-        address: row[1],
-        city: row[2],
-        state: row[3],
-        connectorTypes: row[4]?.toString().split(",").map(t => t.trim()) || [],
-        totalSlots: Number(row[5]) || 4,
-        pricePerUnit: Number(row[6]) || 18,
-        paymentMethods: row[7]?.toString().split(",").map(m => m.trim()) || ["UPI"],
-        lat: Number(row[8]) || 0,
-        lng: Number(row[9]) || 0,
-      }));
-      
-      setExcelData(formatted);
-      setUploadSummary(null);
+      const validRows = [];
+      const skippedRows = [];
+      const errors = [];
+
+      data.forEach((row, index) => {
+        const rowNum = index + 2; // +1 for header, +1 for 0-index
+        const stationName = row.name || 'Unknown Station';
+        
+        // SPECIFIC VALIDATION
+        const missing = [];
+        if (!row.name) missing.push("Name");
+        if (!row.address) missing.push("Address");
+        if (!row.city) missing.push("City");
+        if (!row.state) missing.push("State");
+        
+        const lat = parseFloat(row.lat);
+        const lng = parseFloat(row.lng);
+        const isValidLat = !isNaN(lat) && lat >= -90 && lat <= 90;
+        const isValidLng = !isNaN(lng) && lng >= -180 && lng <= 180;
+        
+        if (isNaN(lat)) missing.push("Latitude (Missing)");
+        else if (!isValidLat) missing.push("Latitude (Invalid Range)");
+        
+        if (isNaN(lng)) missing.push("Longitude (Missing)");
+        else if (!isValidLng) missing.push("Longitude (Invalid Range)");
+
+        if (missing.length > 0) {
+          const errorMsg = `Row ${rowNum} (${stationName}): Missing or invalid ${missing.join(", ")}`;
+          skippedRows.push(errorMsg);
+          errors.push({ row: rowNum, name: stationName, missingFields: missing });
+          return;
+        }
+
+        // Default values for optional fields
+        validRows.push({
+          id: Math.random().toString(36).substr(2, 9),
+          name: row.name,
+          address: row.address,
+          city: row.city,
+          state: row.state,
+          lat: lat,
+          lng: lng,
+          totalSlots: row.totalSlots ? parseInt(row.totalSlots) : 1,
+          pricePerUnit: row.pricePerUnit ? parseFloat(row.pricePerUnit) : 0,
+          connectorTypes: row.connectorTypes ? row.connectorTypes.split(",").map(c => c.trim()) : ["CCS2"],
+          paymentMethods: row.paymentMethods ? row.paymentMethods.split(",").map(p => p.trim()) : ["UPI"],
+          status: 'open',
+          isActive: true
+        });
+      });
+
+      setExcelData(validRows);
+      setParsingErrors(errors);
+      setUploadSummary({
+        total: data.length,
+        valid: validRows.length,
+        skipped: skippedRows.length,
+        firstError: skippedRows[0] || null
+      });
     };
     reader.readAsBinaryString(file);
+  };
+
+  const downloadTemplate = () => {
+    const headers = ["name", "address", "city", "state", "connectorTypes", "totalSlots", "pricePerUnit", "paymentMethods", "lat", "lng"];
+    const sampleRow = ["Tata Power EV Hub", "Baner Road, Baner", "Pune", "Maharashtra", "CCS2,Type2", 6, 18, "UPI,Cash", 18.5590, 73.7868];
+    const ws = XLSX.utils.aoa_to_sheet([headers, sampleRow]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Template");
+    XLSX.writeFile(wb, "EV_Saarthi_Station_Template.xlsx");
   };
 
   const handleBulkUpload = async () => {
     if (excelData.length === 0) return;
     setUploadingBulk(true);
-    setUploadSummary(null);
-    let successCount = 0;
-    let skipCount = 0;       // duplicates
-    let geoFailCount = 0;    // geocoding failures
-
-    const token = await currentUser.getIdToken();
-
-    for (let i = 0; i < excelData.length; i++) {
-      const station = excelData[i];
-
-      // Step 1: Get coordinates (from CSV or Geocode)
-      let coords = null;
-      if (station.lat && station.lng) {
-        coords = { lat: station.lat, lng: station.lng };
-      } else {
-        setBulkProgress({ current: i + 1, total: excelData.length, phase: 'geocoding' });
-        coords = await geocodeAddress(station.address, station.city, station.state);
+    
+    try {
+      const token = await currentUser.getIdToken();
+      const res = await axios.post(`${API_GATEWAY}/api/admin/stations/bulk-add`, {
+        stations: excelData
+      }, { headers: { Authorization: `Bearer ${token}` } });
+      
+      if (res.data.success) {
+        showNotify(`${res.data.addedCount} stations added successfully!`, "success");
+        setExcelData([]);
+        setUploadSummary(null);
+        setIsAddModalOpen(false);
+        fetchStations();
       }
-
-      if (!coords) {
-        console.error(`[BulkUpload] Geocoding failed for "${station.name}" at "${station.address}, ${station.city}". Skipping.`);
-        geoFailCount++;
-        continue;
-      }
-
-      // Step 2: Upload to backend
-      setBulkProgress({ current: i + 1, total: excelData.length, phase: 'uploading' });
-      try {
-        await axios.post(`${API_GATEWAY}/api/admin/stations/add`, {
-          ...station,
-          lat: coords.lat,
-          lng: coords.lng,
-          availableSlots: station.totalSlots,
-          status: 'open',
-          isActive: true,
-          rating: 0
-        }, { headers: { Authorization: `Bearer ${token}` } });
-        successCount++;
-      } catch (err) {
-        if (err.response?.data?.error === "Duplicate station") {
-          skipCount++;
-        } else {
-          console.error("[BulkUpload] API error at row", i, err);
-        }
-      }
+    } catch (err) {
+      console.error("[BulkUpload] error:", err);
+      showNotify(err.response?.data?.error || "Bulk upload failed", "error");
+    } finally {
+      setUploadingBulk(false);
     }
-
-    setUploadingBulk(false);
-    setUploadSummary({ success: successCount, skipped: skipCount, geoFailed: geoFailCount });
-    fetchStations();
   };
 
   // Calls backend endpoint to batch-geocode all stations with lat=0,lng=0
@@ -456,7 +497,7 @@ const StationsPage = () => {
   if (loading) return <div className="p-8 text-center text-gray-500">Loading Stations...</div>;
 
   return (
-    <div className="p-4 lg:p-10 max-w-7xl mx-auto space-y-6">
+    <div className="p-2 sm:p-4 lg:p-6 max-w-7xl mx-auto space-y-6 transition-all">
       {/* TOP BAR */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-3">
@@ -507,65 +548,69 @@ const StationsPage = () => {
           >
             <AddIcon fontSize="small" /> Add New Station
           </button>
+          {tabValue === 1 && isAddModalOpen && (
+            <button
+              onClick={downloadTemplate}
+              className="w-full sm:w-auto bg-gray-100 hover:bg-gray-200 text-gray-700 px-5 py-3 sm:py-2.5 rounded-lg font-bold text-sm transition-all shadow-sm flex justify-center items-center gap-2"
+            >
+              Download Template
+            </button>
+          )}
         </div>
       </div>
 
       {/* TABLE */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="overflow-x-auto w-full">
-          <table className="w-full min-w-[900px] whitespace-nowrap text-left border-collapse">
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="w-full overflow-x-auto">
+          <table className="w-full text-left border-collapse table-auto">
             <thead>
-              <tr className="bg-[#F9FAFB] border-b border-gray-100 text-gray-500 text-xs uppercase tracking-wider">
-                <th className="p-4 font-bold">Station</th>
-                <th className="p-4 font-bold">Location</th>
-                <th className="p-4 font-bold">Connectors</th>
-                <th className="p-4 font-bold">Slots (Avail/Tot)</th>
-                <th className="p-4 font-bold">Price</th>
-                <th className="p-4 font-bold">Payments</th>
-                <th className="p-4 font-bold">Status</th>
-                <th className="p-4 font-bold">Active Map</th>
-                <th className="p-4 font-bold text-right">Actions</th>
+              <tr className="bg-[#F9FAFB] border-b border-gray-100 text-gray-500 text-[10px] sm:text-xs uppercase tracking-wider">
+                <th className="p-3 sm:p-4 font-bold">Station</th>
+                <th className="p-3 sm:p-4 font-bold">Location</th>
+                <th className="p-3 sm:p-4 font-bold">Connectors</th>
+                <th className="p-3 sm:p-4 font-bold text-center">Slots</th>
+                <th className="p-3 sm:p-4 font-bold text-center">Price</th>
+                <th className="p-3 sm:p-4 font-bold text-center">Payments</th>
+                <th className="p-3 sm:p-4 font-bold text-center">Status</th>
+                <th className="p-3 sm:p-4 font-bold text-center">Active Map</th>
+                <th className="p-3 sm:p-4 font-bold text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {stations.map(st => (
                 <tr key={st.id} className="hover:bg-gray-50/50 transition-colors">
-                  <td className="p-4 font-black flex items-center gap-2">
-                    <LocationOnIcon fontSize="small" className="text-gray-400" />
-                    {st.name}
+                  <td className="p-3 sm:p-4 font-black flex items-center gap-2 text-sm sm:text-base">
+                    <LocationOnIcon fontSize="small" className="text-gray-400 shrink-0" />
+                    <span className="truncate max-w-[120px] sm:max-w-[200px]" title={st.name}>{st.name}</span>
                   </td>
-                  <td className="p-4">
-                    <div className="text-sm font-bold text-[#1A1A1A]">{st.city}</div>
-                    <div className="text-xs text-gray-500 max-w-[150px] truncate">{st.address}</div>
+                  <td className="p-3 sm:p-4 whitespace-normal">
+                    <div className="text-xs sm:text-sm font-bold text-[#1A1A1A]">{st.city}</div>
+                    <div className="text-[10px] sm:text-xs text-gray-500 leading-tight max-w-[140px]">{st.address}</div>
                   </td>
-                  <td className="p-4">
-                    <div className="flex flex-wrap gap-1 w-32">
+                  <td className="p-3 sm:p-4">
+                    <div className="flex flex-wrap gap-1 max-w-[100px] sm:max-w-[140px]">
                       {st.connectorTypes?.map(c => (
                         <span key={c} className="bg-gray-100 border border-gray-200 text-gray-600 text-[10px] uppercase font-bold px-1.5 py-0.5 rounded">{c}</span>
                       ))}
                     </div>
                   </td>
-                  <td className="p-4 font-bold">
+                  <td className="p-3 sm:p-4 font-bold text-center text-xs sm:text-sm">
                     <span className={st.availableSlots === 0 ? "text-red-600" : "text-green-600"}>{st.availableSlots}</span>
                     <span className="text-gray-400">/{st.totalSlots}</span>
                   </td>
-                  <td className="p-4 text-sm font-bold">₹{st.pricePerUnit}</td>
-                  <td className="p-4">
-                    <div className="flex flex-wrap gap-1 max-w-[120px]">
-                      {st.paymentMethods?.map(m => (
-                        <span key={m} className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded border ${getPaymentBadgeColor(m)}`}>
+                  <td className="p-3 sm:p-4 text-[10px] sm:text-xs font-bold text-center whitespace-nowrap">₹{st.pricePerUnit}</td>
+                  <td className="p-3 sm:p-4 text-center">
+                    <div className="flex flex-wrap gap-1 justify-center max-w-[80px] sm:max-w-[100px]">
+                      {st.paymentMethods?.map((m, idx) => idx < 2 && (
+                        <span key={m} className={`text-[8px] sm:text-[9px] font-black uppercase px-1 py-0.5 rounded border leading-none ${getPaymentBadgeColor(m)}`}>
                           {m}
                         </span>
                       ))}
-                      {!st.paymentMethods && st.upiSupported && (
-                        <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded border ${getPaymentBadgeColor("UPI")}`}>
-                          UPI
-                        </span>
-                      )}
+                      {st.paymentMethods?.length > 2 && <span className="text-[8px] text-gray-400">+{st.paymentMethods.length - 2}</span>}
                     </div>
                   </td>
-                  <td className="p-4 text-xs font-bold">
-                     <span className={`px-2.5 py-1 rounded-full ${
+                  <td className="p-3 sm:p-4 text-[10px] sm:text-xs font-bold text-center">
+                     <span className={`px-2 py-0.5 rounded-full whitespace-nowrap ${
                         st.status === 'open' ? 'bg-[#F0FDF4] text-[#16A34A]' :
                         st.status === 'filling' ? 'bg-[#FFFBEB] text-[#D97706]' :
                         st.status === 'maintenance' ? 'bg-gray-100 text-gray-500' :
@@ -574,12 +619,14 @@ const StationsPage = () => {
                         {st.status.toUpperCase()}
                       </span>
                   </td>
-                  <td className="p-4">
+                  <td className="p-3 sm:p-4 text-center">
                     <Switch size="small" checked={st.isActive} onChange={() => handleToggle(st.id, st.isActive)} color="warning" />
                   </td>
-                  <td className="p-4 text-right">
-                    <button onClick={() => openEdit(st)} className="text-gray-400 hover:text-blue-600 p-1 mx-1"><EditIcon fontSize="small" /></button>
-                    <button onClick={() => handleDelete(st.id, st.name)} className="text-gray-400 hover:text-red-600 p-1 mx-1"><DeleteIcon fontSize="small" /></button>
+                  <td className="p-3 sm:p-4 text-right sticky right-0 bg-white/95 backdrop-blur-sm z-10">
+                    <div className="flex justify-end items-center gap-0 sm:gap-1">
+                      <button onClick={() => openEdit(st)} className="text-gray-400 hover:text-blue-600 p-1"><EditIcon sx={{ fontSize: { xs: 16, sm: 20 } }} /></button>
+                      <button onClick={() => handleDelete(st.id, st.name)} className="text-gray-400 hover:text-red-600 p-1"><DeleteIcon sx={{ fontSize: { xs: 16, sm: 20 } }} /></button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -590,7 +637,7 @@ const StationsPage = () => {
 
       {/* ADD / EDIT MODAL */}
       <Modal open={isAddModalOpen || isEditModalOpen} onClose={() => { if (!uploadingBulk) { setIsAddModalOpen(false); setIsEditModalOpen(false); } }}>
-        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white rounded-xl shadow-2xl p-4 sm:p-6 w-[95vw] lg:w-[650px] max-w-[95vw] lg:max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white rounded-xl shadow-2xl p-4 sm:p-6 w-[95vw] ${tabValue === 1 && isAddModalOpen ? 'lg:w-[950px] lg:max-w-5xl' : 'lg:w-[650px] lg:max-w-2xl'} max-h-[90vh] overflow-y-auto transition-all duration-300`}>
           <h2 className="text-xl font-black mb-4">{isAddModalOpen ? 'Add New Station' : 'Edit Station'}</h2>
           
           {isAddModalOpen && (
@@ -742,89 +789,160 @@ const StationsPage = () => {
               </div>
             </form>
           ) : (
-            <div className="space-y-6 min-h-[400px]">
-              {!uploadingBulk && !uploadSummary && (
+            <div className="space-y-6">
+              <input type="file" id="excel-input" hidden accept=".xlsx, .xls, .csv" onChange={handleFileChange} />
+
+              {!excelData.length && !uploadSummary && (
                 <div 
                   className="border-2 border-dashed border-gray-300 rounded-xl p-10 text-center hover:border-[#EAB308] transition-colors cursor-pointer"
                   onClick={() => document.getElementById('excel-input').click()}
                 >
-                  <input type="file" id="excel-input" hidden accept=".xlsx, .xls, .csv" onChange={handleFileChange} />
                   <div className="bg-yellow-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
                     <AddIcon className="text-[#EAB308]" size="large" />
                   </div>
                   <p className="font-bold text-gray-700">Click to upload .xlsx file</p>
-                  <p className="text-xs text-gray-500 mt-2">Expected columns: name, address, city, state, connectorTypes, totalSlots, pricePerUnit, paymentMethods</p>
+                  <p className="text-xs text-gray-500 mt-2">Required: name, address, city, state, lat, lng</p>
+                  <button onClick={(e) => { e.stopPropagation(); downloadTemplate(); }} className="mt-4 text-[#EAB308] font-bold text-sm hover:underline">Download Excel Template</button>
                 </div>
               )}
 
-              {excelData.length > 0 && !uploadSummary && (
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center">
-                    <h3 className="font-bold text-sm text-gray-600 italic">{excelData.length} stations found in file</h3>
-                    <button onClick={() => setExcelData([])} className="text-xs text-red-600 font-bold hover:underline">Clear</button>
-                  </div>
-                  <div className="max-h-[200px] overflow-auto border rounded-lg">
-                    <table className="w-full text-xs text-left">
-                      <thead className="bg-gray-50 sticky top-0">
-                        <tr>
-                          <th className="p-2">Name</th>
-                          <th className="p-2">City</th>
-                          <th className="p-2">Slots</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {excelData.slice(0, 5).map((row, i) => (
-                          <tr key={i} className="border-t">
-                            <td className="p-2 font-bold">{row.name}</td>
-                            <td className="p-2">{row.city}</td>
-                            <td className="p-2">{row.totalSlots}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    {excelData.length > 5 && <div className="p-2 text-center text-[10px] text-gray-400">+{excelData.length - 5} more rows</div>}
-                  </div>
-
-                  {uploadingBulk ? (
-                    <div className="space-y-2">
-                       <p className="text-sm font-bold text-[#EAB308]">
-                         {bulkProgress.phase === 'geocoding'
-                           ? `📍 Geocoding ${bulkProgress.current} of ${bulkProgress.total}...`
-                           : `⬆️ Uploading ${bulkProgress.current} of ${bulkProgress.total}...`}
-                       </p>
-                       <LinearProgress variant="determinate" value={(bulkProgress.current / bulkProgress.total) * 100} sx={{ height: 10, borderRadius: 5, backgroundColor: '#FEF3C7', '& .MuiLinearProgress-bar': { backgroundColor: '#EAB308' }}} />
+              {uploadSummary && (
+                <div className="bg-gray-50 rounded-2xl border border-gray-100 p-4 sm:p-6 mb-6">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-4">
+                    <h3 className="text-lg font-black text-gray-800">Parsing Summary</h3>
+                    <div className="flex items-center gap-4 text-sm font-bold">
+                       <span className="text-blue-600">Total: {uploadSummary.total}</span>
+                       <span className="text-green-600">Valid: {uploadSummary.valid}</span>
+                       <span className="text-red-500">
+                          Skipped: {uploadSummary.skipped}
+                          {uploadSummary.skipped > 0 && <button onClick={() => setShowErrorsDialog(true)} className="ml-2 text-xs underline hover:text-red-700 pointer">View All Details</button>}
+                       </span>
                     </div>
-                  ) : (
-                    <div className="flex gap-3 pt-4">
-                      <button type="button" onClick={() => setIsAddModalOpen(false)} className="flex-1 px-5 py-3 rounded-xl border font-bold text-gray-600">Cancel</button>
-                      <button type="button" onClick={handleBulkUpload} className="flex-[2] bg-[#EAB308] hover:bg-[#D97706] text-white py-3 rounded-xl font-black shadow-lg shadow-yellow-100">Upload All Stations</button>
+                  </div>
+                  
+                  {uploadSummary.firstError && (
+                    <div className="bg-orange-50/50 border border-orange-100 rounded-xl p-3 text-xs text-orange-700 leading-relaxed max-h-24 overflow-y-auto">
+                      {uploadSummary.firstError}
+                      {uploadSummary.skipped > 1 && <span className="font-bold underline ml-2 cursor-pointer" onClick={() => setShowErrorsDialog(true)}>... and {uploadSummary.skipped - 1} more issues found.</span>}
                     </div>
                   )}
                 </div>
               )}
 
-              {uploadSummary && (
-                <div className="text-center py-10 space-y-4">
-                   <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                      <CheckCircleIcon className="text-green-600" style={{ fontSize: 40 }} />
-                   </div>
-                   <h2 className="text-2xl font-black">Upload Complete!</h2>
-                   <div className="bg-gray-50 p-6 rounded-2xl inline-block min-w-[300px] space-y-2">
-                      <p className="font-bold text-green-600">{uploadSummary.success} stations added with coordinates ✅</p>
-                      {uploadSummary.skipped > 0 && <p className="font-bold text-orange-500">{uploadSummary.skipped} stations skipped (already exist)</p>}
-                      {uploadSummary.geoFailed > 0 && <p className="font-bold text-red-500">{uploadSummary.geoFailed} stations skipped (geocoding failed — check address)</p>}
-                   </div>
-                   <p className="text-sm text-gray-500 max-w-[400px] mx-auto">
-                     Stations with valid coordinates are now visible on the map.
-                     {uploadSummary.geoFailed > 0 && " Use the \"Geocode Missing\" button on the dashboard to retry failed ones after fixing addresses."}
-                   </p>
-                   <button type="button" onClick={() => { setIsAddModalOpen(false); setUploadSummary(null); }} className="w-full bg-[#1A1A1A] text-white py-4 rounded-xl font-bold mt-6">Back to Dashboard</button>
+              {excelData.length > 0 && (
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <h3 className="font-black text-sm text-gray-700 italic">Verification Table ({excelData.length} stations)</h3>
+                    <button onClick={() => { setExcelData([]); setUploadSummary(null); }} className="text-xs text-red-600 font-bold hover:underline">Discard All</button>
+                  </div>
+                  
+                  <div className="max-h-[500px] overflow-auto border border-gray-100 rounded-xl shadow-inner bg-white">
+                    <table className="w-full text-xs text-left border-collapse table-auto">
+                      <thead className="bg-[#1A1A1A] text-white sticky top-0 z-10">
+                        <tr>
+                          <th className="p-3 font-bold border-r border-gray-700 whitespace-nowrap">Name</th>
+                          <th className="p-3 font-bold border-r border-gray-700 whitespace-nowrap">Address / City</th>
+                          <th className="p-3 font-bold border-r border-gray-700 whitespace-nowrap">Connectors</th>
+                          <th className="p-3 font-bold border-r border-gray-700 text-center whitespace-nowrap">Slots</th>
+                          <th className="p-3 font-bold border-r border-gray-700 text-center whitespace-nowrap">Price</th>
+                          <th className="p-3 font-bold border-r border-gray-700 text-center whitespace-nowrap">Lat</th>
+                          <th className="p-3 font-bold border-r border-gray-700 text-center whitespace-nowrap">Lng</th>
+                          <th className="p-3 font-bold text-center whitespace-nowrap">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {excelData.map((row) => (
+                          <tr key={row.id} className="hover:bg-gray-50/50 transition-colors">
+                            <td className="p-2 min-w-[150px]"><input className="w-full bg-transparent border-none focus:ring-2 focus:ring-[#EAB308] focus:bg-yellow-50 rounded p-1 font-bold" value={row.name} onChange={e => setExcelData(excelData.map(r => r.id === row.id ? {...r, name: e.target.value} : r))} /></td>
+                            <td className="p-2 min-w-[200px]">
+                               <input className="w-full bg-transparent border-none focus:ring-2 focus:ring-[#EAB308] focus:bg-yellow-50 rounded p-1" value={row.address} onChange={e => setExcelData(excelData.map(r => r.id === row.id ? {...r, address: e.target.value} : r))} />
+                               <div className="text-[10px] text-gray-400 font-bold px-1">{row.city}, {row.state}</div>
+                            </td>
+                            <td className="p-2"><input className="w-full bg-transparent border-none focus:ring-2 focus:ring-[#EAB308] focus:bg-yellow-50 rounded p-1" value={row.connectorTypes.join(", ")} onChange={e => setExcelData(excelData.map(r => r.id === row.id ? {...r, connectorTypes: e.target.value.split(",").map(t => t.trim())} : r))} /></td>
+                            <td className="p-2 text-center"><input type="number" className="w-12 bg-transparent border-none focus:ring-2 focus:ring-[#EAB308] focus:bg-yellow-50 rounded p-1 text-center" value={row.totalSlots} onChange={e => setExcelData(excelData.map(r => r.id === row.id ? {...r, totalSlots: Number(e.target.value)} : r))} /></td>
+                            <td className="p-2 text-center"><input type="number" className="w-12 bg-transparent border-none focus:ring-2 focus:ring-[#EAB308] focus:bg-yellow-50 rounded p-1 text-center" value={row.pricePerUnit} onChange={e => setExcelData(excelData.map(r => r.id === row.id ? {...r, pricePerUnit: Number(e.target.value)} : r))} /></td>
+                            <td className="p-2 text-center"><input type="number" className="w-full bg-transparent border-none focus:ring-2 focus:ring-[#EAB308] focus:bg-yellow-50 rounded p-1 font-mono text-center" value={row.lat} onChange={e => setExcelData(excelData.map(r => r.id === row.id ? {...r, lat: Number(e.target.value)} : r))} /></td>
+                            <td className="p-2 text-center"><input type="number" className="w-full bg-transparent border-none focus:ring-2 focus:ring-[#EAB308] focus:bg-yellow-50 rounded p-1 font-mono text-center" value={row.lng} onChange={e => setExcelData(excelData.map(r => r.id === row.id ? {...r, lng: Number(e.target.value)} : r))} /></td>
+                            <td className="p-2 text-center">
+                              <button onClick={() => setExcelData(excelData.filter(r => r.id !== row.id))} className="text-red-400 hover:text-red-600 p-1"><DeleteIcon fontSize="inherit" /></button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="flex gap-3 pt-4 border-t sticky bottom-0 bg-white">
+                    <button type="button" onClick={() => { setExcelData([]); setUploadSummary(null); }} className="flex-1 px-5 py-3 rounded-xl border font-bold text-gray-600 hover:bg-gray-50 transition-colors">Cancel All</button>
+                    <button 
+                      type="button" 
+                      disabled={uploadingBulk}
+                      onClick={handleBulkUpload} 
+                      className="flex-[2] bg-[#EAB308] hover:bg-[#D97706] disabled:opacity-50 text-white py-3 rounded-xl font-black shadow-lg shadow-yellow-100 flex justify-center items-center gap-2"
+                    >
+                      {uploadingBulk ? <LinearProgress sx={{ width: 40, color: 'white' }} /> : 'Confirm & Save All Stations'}
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
           )}
         </div>
       </Modal>
+
+      {/* PARSING ERRORS DETAILS DIALOG */}
+      <Dialog open={showErrorsDialog} onClose={() => setShowErrorsDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle className="font-black bg-red-50 text-red-700 py-3 flex justify-between items-center">
+           Excel Parsing Errors
+           <span className="text-xs font-bold bg-red-100 px-2 py-0.5 rounded-full">{parsingErrors.length} Rows skipped</span>
+        </DialogTitle>
+        <DialogContent className="p-0">
+          <div className="max-h-[400px] overflow-y-auto">
+            <table className="w-full text-left border-collapse text-xs">
+               <thead className="bg-gray-100 sticky top-0">
+                 <tr>
+                    <th className="p-3 font-bold border-b">Row</th>
+                    <th className="p-3 font-bold border-b">Station Name</th>
+                    <th className="p-3 font-bold border-b text-red-600">Missing/Invalid Fields</th>
+                 </tr>
+               </thead>
+               <tbody className="divide-y divide-gray-100">
+                 {parsingErrors.map((err, i) => (
+                   <tr key={i} className="hover:bg-red-50/30 transition-colors">
+                      <td className="p-3 font-mono font-bold text-gray-500">#{err.row}</td>
+                      <td className="p-3 font-bold">{err.name}</td>
+                      <td className="p-3 font-medium text-red-600 italic">{err.missingFields.join(", ")}</td>
+                   </tr>
+                 ))}
+               </tbody>
+            </table>
+          </div>
+        </DialogContent>
+        <DialogActions className="border-t">
+          <Button onClick={() => setShowErrorsDialog(false)} className="font-bold text-gray-600">Close</Button>
+          <Button onClick={() => { setShowErrorsDialog(false); document.getElementById('excel-input').click(); }} className="bg-[#EAB308] text-white font-black px-4 hover:bg-[#CA8A04]">Re-upload Corrected File</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Snackbar and Confirm Dialog */}
+      <Snackbar open={snackbar.open} autoHideDuration={4000} onClose={() => setSnackbar({ ...snackbar, open: false })} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
+        <Alert severity={snackbar.severity} variant="filled" sx={{ width: '100%', fontWeight: 'bold' }}>{snackbar.message}</Alert>
+      </Snackbar>
+
+      <Dialog open={confirmDialog.open} onClose={() => setConfirmDialog({ ...confirmDialog, open: false })}>
+        <DialogTitle sx={{ fontWeight: 'black' }}>{confirmDialog.title}</DialogTitle>
+        <DialogContent>
+          <Typography variant="body1" sx={{ fontWeight: 'medium', color: 'gray.600' }}>{confirmDialog.message}</Typography>
+        </DialogContent>
+        <DialogActions sx={{ p: 3 }}>
+          <Button onClick={() => setConfirmDialog({ ...confirmDialog, open: false })} sx={{ fontWeight: 'bold', color: 'gray.500' }}>Cancel</Button>
+          <Button 
+             onClick={() => { confirmDialog.onConfirm(); setConfirmDialog({ ...confirmDialog, open: false }); }} 
+             variant="contained" color="error" sx={{ fontWeight: 'bold', borderRadius: '8px', px: 3 }}>
+            Confirm
+          </Button>
+        </DialogActions>
+      </Dialog>
     </div>
   );
 };

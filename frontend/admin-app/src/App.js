@@ -8,6 +8,7 @@ import OverviewPage from "./pages/OverviewPage";
 import StationsPage from "./pages/StationsPage";
 import UsersPage from "./pages/UsersPage";
 import TeamPage from "./pages/TeamPage";
+import ReviewsPage from "./pages/ReviewsPage";
 
 function App() {
   return (
@@ -22,6 +23,7 @@ function App() {
               <Route path="/admin/stations" element={<AdminProtectedRoute><StationsPage /></AdminProtectedRoute>} />
               <Route path="/admin/users" element={<AdminProtectedRoute><UsersPage /></AdminProtectedRoute>} />
               <Route path="/admin/team" element={<AdminProtectedRoute><TeamPage /></AdminProtectedRoute>} />
+              <Route path="/admin/reviews" element={<AdminProtectedRoute><ReviewsPage /></AdminProtectedRoute>} />
 
               {/* Default catch-all */}
               <Route path="*" element={<Navigate to="/admin" replace />} />

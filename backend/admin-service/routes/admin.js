@@ -391,6 +391,75 @@ router.patch("/stations/:id/slots", verifyToken, verifyAdmin, async (req, res) =
   }
 });
 
+// POST /api/admin/stations/bulk-add
+// Add multiple stations atomically using Firestore WriteBatch.
+// Input: { stations: [...] }
+router.post("/stations/bulk-add", verifyToken, verifyAdmin, async (req, res) => {
+  const { stations } = req.body;
+
+  if (!stations || !Array.isArray(stations) || stations.length === 0) {
+    return res.status(400).json({ error: "Stations array is required and must not be empty" });
+  }
+
+  try {
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    const stationsCol = db.collection("stations");
+    
+    // Firestore batch limit is 500 operations.
+    // We break the array into chunks of 500 even though the UI handles it.
+    const CHUNK_SIZE = 500;
+    let totalSuccess = 0;
+
+    for (let i = 0; i < stations.length; i += CHUNK_SIZE) {
+      const chunk = stations.slice(i, i + CHUNK_SIZE);
+      const batch = db.batch();
+
+      chunk.forEach((st) => {
+        const slots = Number(st.totalSlots) || 1;
+        const price = Number(st.pricePerUnit) || 0;
+        const lat = Number(st.lat);
+        const lng = Number(st.lng);
+
+        const stationData = {
+          name: (st.name || "").trim(),
+          address: (st.address || "").trim(),
+          city: (st.city || "").trim(),
+          state: (st.state || "").trim(),
+          connectorTypes: Array.isArray(st.connectorTypes) ? st.connectorTypes : [],
+          totalSlots: slots,
+          availableSlots: slots,
+          status: "open",
+          pricePerUnit: price,
+          paymentMethods: Array.isArray(st.paymentMethods) ? st.paymentMethods : ["UPI"],
+          rating: 0,
+          isActive: true,
+          lat,
+          lng,
+          addedBy: req.uid,
+          lastUpdatedBy: req.uid,
+          createdAt: now,
+          updatedAt: now,
+        };
+
+        const newDocRef = stationsCol.doc();
+        batch.set(newDocRef, stationData);
+      });
+
+      await batch.commit();
+      totalSuccess += chunk.length;
+    }
+
+    res.json({
+      success: true,
+      message: `Bulk add complete. ${totalSuccess} stations added.`,
+      addedCount: totalSuccess
+    });
+  } catch (error) {
+    console.error("[admin-service] Bulk add error:", error.message);
+    res.status(500).json({ error: "Bulk add failed", details: error.message });
+  }
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // USER ROUTES
 // ─────────────────────────────────────────────────────────────────────────────
@@ -560,6 +629,75 @@ router.delete("/team/:uid", verifyToken, verifyAdmin, async (req, res) => {
   } catch (error) {
     console.error("[admin-service] Remove admin error:", error.message);
     res.status(500).json({ error: "Failed to remove admin", details: error.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REVIEW MODERATION ROUTES
+// ─────────────────────────────────────────────────────────────────────────────
+
+// GET /api/admin/reviews
+// Returns ALL reviews across all stations for moderation
+router.get("/reviews", verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    // Collection Group Query: gets 'reviews' subcollection from ANY document
+    // Temporarily removed orderBy to avoid index requirement
+    const snapshot = await db.collectionGroup("reviews").get();
+    
+    const reviews = snapshot.docs.map(doc => {
+      const data = doc.data();
+      // To update/delete, we need the parent station ID
+      // doc.ref.parent.parent.id gives the stationId
+      const stationId = doc.ref.parent.parent.id;
+      
+      return {
+        id: doc.id,
+        stationId,
+        ...data,
+        timestamp: data.timestamp?.toDate?.().toISOString() || null,
+      };
+    });
+
+    res.json({ success: true, reviews });
+  } catch (error) {
+    console.error("[admin-service] Get reviews moderation error:", error.message);
+    res.status(500).json({ 
+      error: "Failed to fetch reviews for moderation", 
+      message: error.message,
+      // If this is a missing index error, the message will contain a link to create it!
+      details: error.stack 
+    });
+  }
+});
+
+// PATCH /api/admin/reviews/:stationId/:reviewId
+// Approve or reject a review
+router.patch("/reviews/:stationId/:reviewId", verifyToken, verifyAdmin, async (req, res) => {
+  const { stationId, reviewId } = req.params;
+  const { status } = req.body; // "approved" | "rejected" | "pending"
+
+  if (!["approved", "rejected", "pending"].includes(status)) {
+    return res.status(400).json({ error: "Invalid status" });
+  }
+
+  try {
+    const reviewRef = db.collection("stations").doc(stationId).collection("reviews").doc(reviewId);
+    const doc = await reviewRef.get();
+    
+    if (!doc.exists) {
+      return res.status(404).json({ error: "Review not found" });
+    }
+
+    await reviewRef.update({
+      status,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      moderatedBy: req.uid
+    });
+
+    res.json({ success: true, message: `Review ${status} successfully` });
+  } catch (error) {
+    console.error("[admin-service] Update review status error:", error.message);
+    res.status(500).json({ error: "Failed to update review status" });
   }
 });
 
