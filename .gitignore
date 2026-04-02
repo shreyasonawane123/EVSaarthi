@@ -1,5 +1,5 @@
 node_modules/
-.env
+.env*
 
 # Firebase credentials (MUST NOT BE COMMITTED)
 backend/auth-service/serviceAccountKey.json
