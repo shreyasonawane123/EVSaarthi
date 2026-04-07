@@ -87,7 +87,7 @@ const AdminFrame = () => {
   // Build iframe URL with token, name, role
   const iframePath = window.location.pathname.replace("/admin", "") || "/";
   const nameParam = encodeURIComponent(currentUser.displayName || "Admin");
-  const iframeUrl = `http://localhost:3007${iframePath}?token=${token}&name=${nameParam}&role=${adminRole}`;
+  const iframeUrl = `/admin${iframePath}?token=${token}&name=${nameParam}&role=${adminRole}`;
 
   console.log("[AdminFrame] Loading admin iframe:", iframeUrl);
 

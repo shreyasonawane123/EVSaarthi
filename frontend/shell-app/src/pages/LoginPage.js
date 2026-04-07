@@ -14,7 +14,7 @@ import {
   Nature as NatureIcon
 } from '@mui/icons-material';
 
-const API = process.env.REACT_APP_API_GATEWAY_URL || "http://localhost:5000";
+const API = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
 const LoginPage = () => {
   const [loading, setLoading] = useState(false);

@@ -14,7 +14,7 @@ import CircularProgress from "@mui/material/CircularProgress";
 import axios from "axios";
 import { TextField, Chip } from "@mui/material";
 
-const API = process.env.REACT_APP_API_GATEWAY_URL || "http://localhost:5000";
+const API = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
 // ─── Toast ───────────────────────────────────────────────────────────────────
 const Toast = ({ toast, onClose }) => {
@@ -69,11 +69,11 @@ const AddOperatorModal = ({ onClose, onSuccess, currentUser, editingOperator }) 
       const assignedStationsArray = stations.split(",").map(s => s.trim()).filter(x => x);
 
       if (editingOperator) {
-        res = await axios.put(`http://localhost:5003/operators/${editingOperator.id}`, {
+        res = await axios.put(`${API}/api/operators/${editingOperator.id}`, {
           name, assignedStations: assignedStationsArray
         }, { headers: { Authorization: `Bearer ${token}` } });
       } else {
-        res = await axios.post(`http://localhost:5003/operators`, {
+        res = await axios.post(`${API}/api/operators`, {
           email, password, name, assignedStations: assignedStationsArray
         }, { headers: { Authorization: `Bearer ${token}` } });
       }

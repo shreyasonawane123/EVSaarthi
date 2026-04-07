@@ -20,7 +20,7 @@ const AdminNavbar = () => {
 
   const handleLogout = async () => {
     await logout();
-    window.location.href = 'http://localhost:3000/login';
+    window.location.href = '/login';
   };
 
   const NAV_LINKS = [

@@ -34,6 +34,7 @@ const { router: stationRouter } = require("./routes/stations");
 const bookingRouter = require("./routes/booking");
 const vehicleRouter = require("./routes/vehicle");
 const { router: adminRouter } = require("./routes/admin");
+const operatorsRouter = require("./routes/operators");
 
 // ── Mount Routes ──────────────────────────────────────────────────
 // These match the paths originally used by the API Gateway
@@ -43,6 +44,7 @@ app.use("/api/stations", stationRouter);
 app.use("/api/booking", bookingRouter);
 app.use("/api/vehicle", vehicleRouter);
 app.use("/api/admin", adminRouter);
+app.use("/api/operators", operatorsRouter);
 
 // ── 404 Handler ───────────────────────────────────────────────────
 app.use((req, res) => {

@@ -17,7 +17,7 @@ import {
 } from "@mui/icons-material";
 import CircularProgress from "@mui/material/CircularProgress";
 
-const API = process.env.REACT_APP_API_GATEWAY_URL || "http://localhost:5000";
+const API = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 const fmtDate = (iso) => {
@@ -201,7 +201,7 @@ const AddAdminModal = ({ onClose, onSuccess, currentUser }) => {
             <span style={{ fontSize: 13, color: "#DC2626", lineHeight: 1.5 }}>
               {error}
               {error.toLowerCase().includes("not found") && (
-                <><br /><strong>→ They should open localhost:3000 and sign in with Google first.</strong></>
+                <><strong>→ They should open the EV Saarthi login page and sign in with Google first.</strong></>
               )}
             </span>
           </div>

@@ -10,7 +10,7 @@ import {
   ArrowForward as ArrowForwardIcon
 } from "@mui/icons-material";
 
-const API_GATEWAY = process.env.REACT_APP_API_GATEWAY_URL || "http://localhost:5000";
+const API_GATEWAY = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
 const OverviewPage = () => {
   const { currentUser } = useAuth();

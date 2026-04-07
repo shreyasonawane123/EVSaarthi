@@ -11,7 +11,7 @@ import {
 } from '@mui/icons-material';
 import { Alert, Snackbar } from '@mui/material';
 
-const API_GATEWAY = process.env.REACT_APP_API_GATEWAY_URL || "http://localhost:5000";
+const API_GATEWAY = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
 const ReviewsPage = () => {
   const { currentUser } = useAuth();

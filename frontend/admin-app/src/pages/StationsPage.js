@@ -14,7 +14,7 @@ import { Switch, Modal, TextField, MenuItem, Checkbox, ListItemText, Select, Inp
 import * as XLSX from "xlsx";
 import { Alert, Snackbar, Dialog, DialogTitle, DialogContent, DialogActions, Button } from "@mui/material";
 
-const API_GATEWAY = process.env.REACT_APP_API_GATEWAY_URL || "http://localhost:5000";
+const API_GATEWAY = process.env.REACT_APP_API_URL || "http://localhost:5000";
 const MAPPLS_KEY = "496b3b573470430656a3e7448c9a7f5b";
 
 // Add a mock indianCities.json handling since we can't load it easily without copying

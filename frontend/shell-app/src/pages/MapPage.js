@@ -3,7 +3,7 @@ import { useAuth } from "../context/AuthContext";
 import CircularProgress from "@mui/material/CircularProgress";
 import axios from "axios";
 
-const API = process.env.REACT_APP_API_GATEWAY_URL || "http://localhost:5000";
+const API = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
 const MapPage = () => {
   const { currentUser } = useAuth();
@@ -31,12 +31,12 @@ const MapPage = () => {
           }
 
           const query = new URLSearchParams({ token, name, city });
-          const finalUrl = `http://localhost:3003/map?${query.toString()}`;
+          const finalUrl = `/map/?${query.toString()}`;
           console.log("MapPage: Setting map URL:", finalUrl);
           setMapUrl(finalUrl);
         } catch (error) {
           console.error("Failed to get token for map app:", error);
-          setMapUrl("http://localhost:3003");
+          setMapUrl("/map/");
         }
       } else {
         setMapUrl("");

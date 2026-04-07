@@ -105,7 +105,7 @@ const buildPopupHTML = (station) => `
       ? `<div style="background:#F0FDF4;color:#16A34A;font-size:11px;font-weight:bold;padding:3px 8px;border-radius:4px;margin-bottom:12px;display:inline-block;">UPI Accepted</div>`
       : ''}
     <button
-      onclick="window.parent.location.href='http://localhost:3000/booking?stationId=${station.id}'"
+      onclick="window.parent.location.href='/booking?stationId=${station.id}'"
       style="width:100%;background:#EAB308;border:none;border-radius:8px;padding:10px;font-size:14px;font-weight:bold;color:#1A1A1A;cursor:pointer;">
       Book a Slot
     </button>
