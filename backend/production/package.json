@@ -1,0 +1,23 @@
+{
+  "name": "ev-saarthi-production-backend",
+  "version": "1.0.0",
+  "description": "Unified Production Backend for EV Saarthi",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "axios": "^1.4.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "firebase-admin": "^11.10.1",
+    "http-proxy-middleware": "^3.0.0",
+    "jsonwebtoken": "^9.0.1",
+    "morgan": "^1.10.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}

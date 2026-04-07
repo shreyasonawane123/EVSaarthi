@@ -21,7 +21,11 @@ app.use(express.json());
 
 // Routes
 const stationsRoutes = require("./routes/stations");
-app.use("/", stationsRoutes);
+const operatorsRoutes = require("./routes/operators");
+
+app.use("/operators", operatorsRoutes);
+app.use("/api/stations", stationsRoutes);
+app.use("/", stationsRoutes); // Keep / for fallback safety
 
 // 404
 app.use((req, res) => {

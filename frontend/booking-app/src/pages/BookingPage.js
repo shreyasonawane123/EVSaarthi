@@ -1,7 +1,8 @@
 // frontend/booking-app/src/pages/BookingPage.js
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import axios from "axios";
+import ReCAPTCHA from "react-google-recaptcha";
 import { useAuth } from "../context/AuthContext";
 import {
   EvStation, LocationOn, LocalOffer, InfoOutlined, WarningAmber,
@@ -37,8 +38,15 @@ const BookingPage = () => {
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedTime, setSelectedTime] = useState("");
   const [duration, setDuration] = useState(""); // 30, 60, 120
+  const [timeSlots, setTimeSlots] = useState([]);
+  const [loadingSlots, setLoadingSlots] = useState(false);
   const [bookingLoading, setBookingLoading] = useState(false);
   
+  // ReCAPTCHA State
+  const recaptchaRef = useRef(null);
+  const [recaptchaToken, setRecaptchaToken] = useState(null);
+  const [showCaptchaModal, setShowCaptchaModal] = useState(false);
+
   // Reviews State
   const [reviews, setReviews] = useState([]);
   const [loadingReviews, setLoadingReviews] = useState(true);
@@ -62,27 +70,31 @@ const BookingPage = () => {
         id: d.toISOString().split("T")[0],
         label: i === 0 ? "Today" : i === 1 ? "Tomorrow" : d.toLocaleDateString("en-US", { weekday: "short" }),
         dateStr: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-        fullDate: d.toLocaleDateString('en-GB').split('/').join('-') // DD-MM-YYYY
+        fullDate: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` // YYYY-MM-DD
       });
     }
     return dates;
   };
   const dates = getNext7Days();
 
-  // Time Slots Generate (08:00 to 22:00, 30 min intervals)
-  const generateTimeSlots = () => {
-    const times = [];
-    let h = 8, m = 0;
-    while (h < 22) {
-      const hh = h.toString().padStart(2, "0");
-      const mm = m.toString().padStart(2, "0");
-      times.push(`${hh}:${mm}`);
-      m += 30;
-      if (m >= 60) { h++; m = 0; }
-    }
-    return times;
-  };
-  const timeSlots = generateTimeSlots();
+  // Load dynamically generated times from backend when a date is selected
+  useEffect(() => {
+    if (!stationId || !selectedDate) return;
+    const fetchSlots = async () => {
+      setLoadingSlots(true);
+      setSelectedTime(""); // reset time on change date
+      try {
+        const res = await axios.get(`${GATEWAY_URL}/api/stations/${stationId}/slots?date=${selectedDate}`);
+        setTimeSlots(res.data.slots || []);
+      } catch(err) {
+        setTimeSlots([]);
+        console.error("Failed to fetch slots", err);
+      } finally {
+        setLoadingSlots(false);
+      }
+    };
+    fetchSlots();
+  }, [stationId, selectedDate]);
 
   // Load Data
   useEffect(() => {
@@ -97,22 +109,27 @@ const BookingPage = () => {
         const token = await currentUser.getIdToken();
         const config = { headers: { Authorization: `Bearer ${token}` } };
 
-        // 1. Fetch Station (public route is fine, but proxy through gateway)
-        const stRes = await axios.get(`${GATEWAY_URL}/api/stations/${stationId}`, config);
+        // 🚀 Parallel Data Fetching
+        const [stRes, vRes, bRes] = await Promise.all([
+          axios.get(`${GATEWAY_URL}/api/stations/${stationId}`, config),
+          axios.get(`${GATEWAY_URL}/api/vehicle/me`, config).catch(e => {
+            console.warn("Vehicle fetch failed, using defaults", e);
+            return { data: { vehicle: null } };
+          }),
+          axios.get(`${GATEWAY_URL}/api/booking/my-bookings`, config).catch(e => {
+            console.warn("Bookings fetch failed", e);
+            return { data: { bookings: [] } };
+          })
+        ]);
+
         setStation(stRes.data.station);
-
-        // 2. Fetch Vehicle Info (need battery capacity for cost)
-        const vRes = await axios.get(`${GATEWAY_URL}/api/vehicle/me`, config);
         setVehicle(vRes.data.vehicle || { batteryCapacity: 40, vehicleModel: "Unknown Vehicle", vehicleBrand: "EV" });
-
-        // 3. Fetch My Bookings
-        const bRes = await axios.get(`${GATEWAY_URL}/api/booking/my-bookings`, config);
         setBookings(bRes.data.bookings || []);
 
         setLoading(false);
         setLoadingBookings(false);
         
-        // 4. Fetch Reviews
+        // 4. Fetch Reviews (Can happen alongside or slightly after)
         fetchReviews();
       } catch (err) {
         console.error("Fetch error:", err);
@@ -142,8 +159,21 @@ const BookingPage = () => {
     } catch(e) {}
   };
 
-  const handleProceedToPay = async () => {
+  const onProceedClick = () => {
     if (!selectedDate || !selectedTime || !duration) return;
+    setShowCaptchaModal(true);
+  };
+
+  const handleCaptchaSuccess = (token) => {
+    if (token) {
+      setRecaptchaToken(token);
+      setShowCaptchaModal(false);
+      handleProceedToPay(token);
+    }
+  };
+
+  const handleProceedToPay = async (token) => {
+    if (!selectedDate || !selectedTime || !duration || !token) return;
     setBookingLoading(true);
 
     try {
@@ -153,7 +183,8 @@ const BookingPage = () => {
       // 1. Create Razorpay Order on Backend
       const orderRes = await axios.post(`${GATEWAY_URL}/api/booking/payment/order`, {
         stationId,
-        duration: Number(duration)
+        duration: Number(duration),
+        recaptchaToken: token
       }, config);
 
       const { orderId, amount, currency } = orderRes.data;
@@ -182,6 +213,8 @@ const BookingPage = () => {
             showNotify("Booking Confirmed!", "success");
             setSelectedTime("");
             setDuration("");
+            setRecaptchaToken(null);
+            if (recaptchaRef.current) recaptchaRef.current.reset();
             
             // Reload data
             const stRes = await axios.get(`${GATEWAY_URL}/api/stations/${stationId}`, config);
@@ -209,12 +242,16 @@ const BookingPage = () => {
       rzp.on('payment.failed', function (response) {
         showNotify("Payment failed: " + response.error.description, "error");
         setBookingLoading(false);
+        setRecaptchaToken(null);
+        if (recaptchaRef.current) recaptchaRef.current.reset();
       });
       rzp.open();
 
     } catch (err) {
       showNotify(err.response?.data?.error || "Failed to initiate payment", "error");
       setBookingLoading(false);
+      setRecaptchaToken(null);
+      if (recaptchaRef.current) recaptchaRef.current.reset();
     }
   };
 
@@ -320,6 +357,23 @@ const BookingPage = () => {
             <LocationOn fontSize="small" className="mr-1" />
             {station?.address}, {station?.city}
           </div>
+          
+          {/* 📍 RATING SUMMARY (New) */}
+          <div className="flex items-center gap-2 mb-4">
+             <div className="flex items-center bg-yellow-50 px-3 py-1 rounded-lg border border-yellow-100">
+                <StarIcon sx={{ color: '#EAB308', fontSize: 18, mr: 0.5 }} />
+                <span className="font-black text-sm text-[#1A1A1A]">
+                  {station?.rating ? station.rating.toFixed(1) : "No ratings"}
+                </span>
+             </div>
+             <button 
+               onClick={() => document.getElementById('reviews-section').scrollIntoView({ behavior: 'smooth' })}
+               className="text-gray-400 text-xs font-bold hover:text-[#EAB308] hover:underline"
+             >
+               ({reviews.length} community reviews)
+             </button>
+          </div>
+
           <div className="flex flex-wrap gap-2">
             {(station?.connectorTypes || []).map(ct => (
               <span key={ct} className="bg-blue-50 text-blue-700 border border-blue-200 px-3 py-1 rounded-full text-xs font-bold">
@@ -332,13 +386,80 @@ const BookingPage = () => {
           </div>
         </div>
 
-        <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 min-w-[160px] text-center">
-          <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Available Slots</div>
-          <div className={`text-3xl font-black ${station?.availableSlots > 0 ? 'text-green-600' : 'text-red-500'}`}>
-            {station?.availableSlots} <span className="text-base font-bold text-gray-400">/ {station?.totalSlots}</span>
+        {/* 📍 QUICK WRITE REVIEW (New) */}
+        <div className="flex flex-col gap-3 items-center">
+          <button 
+            onClick={() => setReviewModal(true)}
+            className="flex items-center gap-2 bg-[#1A1A1A] text-white px-5 py-3 rounded-xl font-bold hover:bg-gray-800 transition-all shadow-md active:scale-95 whitespace-nowrap"
+          >
+            <RateReviewIcon fontSize="small" /> Write Review
+          </button>
+          
+          <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 min-w-[160px] text-center">
+            <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Available Slots</div>
+            <div className={`text-3xl font-black ${station?.availableSlots > 0 ? 'text-green-600' : 'text-red-500'}`}>
+              {station?.availableSlots} <span className="text-base font-bold text-gray-400">/ {station?.totalSlots}</span>
+            </div>
           </div>
         </div>
       </div>
+
+      {/* SECTION 4: Reviews (Moved higher and added ID for scrolling) */}
+      <div id="reviews-section" className="pt-4 space-y-6">
+        <div className="flex justify-between items-center bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+          <div>
+            <h2 className="text-xl font-black text-[#1A1A1A]">Community Experience</h2>
+            <p className="text-gray-500 font-medium text-xs">Verified feedback from real station visitors</p>
+          </div>
+          <div className="text-right">
+            <div className="text-3xl font-black text-[#1A1A1A] flex items-center justify-end gap-1">
+               {station?.rating ? station.rating.toFixed(1) : "0.0"}
+               <StarIcon sx={{ color: '#EAB308' }} />
+            </div>
+            <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{reviews.length} Total Reviews</div>
+          </div>
+        </div>
+
+        {loadingReviews ? (
+          <div className="text-gray-400 font-bold p-4">Loading reviews...</div>
+        ) : reviews.length === 0 ? (
+          <div className="bg-white border-2 border-dashed border-gray-100 rounded-2xl p-10 text-center text-gray-400 font-bold italic">
+            No approved reviews yet. Be the first to share your experience!
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {reviews.map(rev => (
+              <div key={rev.id} className="bg-white border border-gray-100 p-5 rounded-2xl shadow-sm hover:shadow-md transition-shadow">
+                <div className="flex justify-between items-start mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-[#F5F3FF] text-[#7C3AED] rounded-full flex items-center justify-center font-black text-xs">
+                      {rev.userName?.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <div className="font-black text-xs text-[#1A1A1A]">{rev.userName}</div>
+                      <div className="text-[9px] text-gray-400 font-bold uppercase tracking-widest">
+                        {new Date(rev.timestamp).toLocaleDateString()}
+                      </div>
+                    </div>
+                  </div>
+                  {rev.verifiedVisit && (
+                    <div className="flex items-center gap-1 text-[#16A34A] bg-green-50 px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider border border-green-100">
+                      <VerifiedIcon style={{ fontSize: 10 }} /> Verified
+                    </div>
+                  )}
+                </div>
+                <Rating value={rev.rating} readOnly size="small" sx={{ mb: 1, color: '#EAB308' }} />
+                <p className="text-gray-700 text-xs font-medium leading-relaxed italic">"{rev.text}"</p>
+                {rev.photoUrl && (
+                  <img src={rev.photoUrl} alt="Review" className="mt-3 rounded-lg max-h-32 w-full object-cover border border-gray-50 shadow-sm" />
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <hr className="border-gray-100" />
 
       {/* SECTION 2: Booking Form */}
       {station?.availableSlots > 0 ? (
@@ -373,22 +494,30 @@ const BookingPage = () => {
             {/* Times */}
             <div>
               <h3 className="text-sm font-bold text-gray-800 mb-3 uppercase">2. Select Time</h3>
-              <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
-                {timeSlots.map(t => (
-                  <button
-                    key={t}
-                    disabled={!selectedDate}
-                    onClick={() => setSelectedTime(t)}
-                    className={`py-2 rounded-lg text-sm font-bold border-2 transition-all
-                      ${!selectedDate ? 'opacity-50 cursor-not-allowed border-gray-100 bg-gray-50' : 
-                        selectedTime === t 
-                        ? 'border-[#EAB308] bg-[#EAB308] text-white shadow-md' 
-                        : 'border-gray-200 hover:border-gray-300 text-gray-700'}`}
-                  >
-                    {t}
-                  </button>
-                ))}
-              </div>
+              {loadingSlots ? (
+                <div className="text-gray-500 font-bold text-sm">Loading available slots...</div>
+              ) : timeSlots.length === 0 ? (
+                <div className="text-red-500 font-bold text-sm bg-red-50 p-4 border border-red-100 rounded-xl">
+                  No slots currently active/open for this date.
+                </div>
+              ) : (
+                <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
+                  {timeSlots.map(t => (
+                    <button
+                      key={t}
+                      disabled={!selectedDate}
+                      onClick={() => setSelectedTime(t)}
+                      className={`py-2 rounded-lg text-sm font-bold border-2 transition-all
+                        ${!selectedDate ? 'opacity-50 cursor-not-allowed border-gray-100 bg-gray-50' : 
+                          selectedTime === t 
+                          ? 'border-[#EAB308] bg-[#EAB308] text-white shadow-md' 
+                          : 'border-gray-200 hover:border-gray-300 text-gray-700'}`}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Duration */}
@@ -428,10 +557,10 @@ const BookingPage = () => {
               </div>
               
               <button
-                onClick={handleProceedToPay}
+                onClick={onProceedClick}
                 disabled={!selectedDate || !selectedTime || !duration || bookingLoading}
                 className={`py-4 px-10 rounded-xl font-black text-lg transition-all w-full sm:w-auto shadow-lg
-                  ${!selectedDate || !selectedTime || !duration 
+                  ${!selectedDate || !selectedTime || !duration
                     ? 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none' 
                     : bookingLoading 
                       ? 'bg-[#16A34A] text-white opacity-80 cursor-wait'
@@ -523,59 +652,22 @@ const BookingPage = () => {
         </DialogActions>
       </Dialog>
 
-      {/* SECTION 4: Reviews */}
-      <div className="mt-16 pt-10 border-t border-gray-200">
-        <div className="flex justify-between items-center mb-8">
-          <div>
-            <h2 className="text-2xl font-black text-[#1A1A1A]">Community Reviews</h2>
-            <p className="text-gray-500 font-medium text-sm">Verified feedback from real station visitors</p>
-          </div>
-          <button 
-            onClick={() => setReviewModal(true)}
-            className="flex items-center gap-2 bg-[#EAB308] text-[#1A1A1A] px-5 py-2.5 rounded-xl font-bold hover:bg-[#d9a300] transition-colors shadow-sm"
-          >
-            <RateReviewIcon fontSize="small" /> Write Review
-          </button>
-        </div>
+      {/* ReCAPTCHA Modal */}
+      <Dialog open={showCaptchaModal} onClose={() => setShowCaptchaModal(false)}>
+        <DialogTitle sx={{ fontWeight: 'black', px: 3, pt: 3, textAlign: 'center' }}>Security Verification</DialogTitle>
+        <DialogContent sx={{ px: 3, py: 2, display: 'flex', justifyContent: 'center' }}>
+          <ReCAPTCHA
+            ref={recaptchaRef}
+            sitekey={process.env.REACT_APP_RECAPTCHA_SITE_KEY || "6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI"}
+            onChange={handleCaptchaSuccess}
+          />
+        </DialogContent>
+        <DialogActions sx={{ p: 3, justifyContent: 'center' }}>
+          <Button onClick={() => setShowCaptchaModal(false)} sx={{ fontWeight: 'bold', color: 'gray.500' }}>Cancel Payment</Button>
+        </DialogActions>
+      </Dialog>
 
-        {loadingReviews ? (
-          <div className="text-gray-400 font-bold p-4">Loading reviews...</div>
-        ) : reviews.length === 0 ? (
-          <div className="bg-gray-50 border-2 border-dashed border-gray-200 rounded-2xl p-12 text-center text-gray-400 font-bold italic">
-            No approved reviews yet. Be the first to share your experience!
-          </div>
-        ) : (
-          <div className="space-y-6">
-            {reviews.map(rev => (
-              <div key={rev.id} className="bg-white border border-gray-100 p-6 rounded-2xl shadow-sm hover:shadow-md transition-shadow">
-                <div className="flex justify-between items-start mb-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-[#F5F3FF] text-[#7C3AED] rounded-full flex items-center justify-center font-black">
-                      {rev.userName?.charAt(0).toUpperCase()}
-                    </div>
-                    <div>
-                      <div className="font-black text-sm text-[#1A1A1A]">{rev.userName}</div>
-                      <div className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
-                        {new Date(rev.timestamp).toLocaleDateString()}
-                      </div>
-                    </div>
-                  </div>
-                  {rev.verifiedVisit && (
-                    <div className="flex items-center gap-1 text-[#16A34A] bg-green-50 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border border-green-100">
-                      <VerifiedIcon style={{ fontSize: 13 }} /> Verified Visit
-                    </div>
-                  )}
-                </div>
-                <Rating value={rev.rating} readOnly size="small" sx={{ mb: 1.5, color: '#EAB308' }} />
-                <p className="text-gray-700 text-sm font-medium leading-relaxed italic">"{rev.text}"</p>
-                {rev.photoUrl && (
-                  <img src={rev.photoUrl} alt="Review" className="mt-4 rounded-xl max-h-48 w-full object-cover border border-gray-100 shadow-sm" />
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+
 
       {/* Review Modal */}
       <Dialog open={reviewModal} onClose={() => !reviewData.uploading && setReviewModal(false)} maxWidth="sm" fullWidth>

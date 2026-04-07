@@ -57,11 +57,35 @@ const ReviewsPage = () => {
         { status },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      showNotify(`Review ${status} successfully`, 'success');
-      // Refresh list
       fetchReviews();
     } catch (err) {
       showNotify('Update failed: ' + (err.response?.data?.error || err.message), 'error');
+    }
+  };
+
+  const handleApproveAll = async () => {
+    const pendingReviews = reviews.filter(rev => rev.status === 'pending');
+    if (pendingReviews.length === 0) {
+      showNotify('No pending reviews to approve', 'info');
+      return;
+    }
+
+    try {
+      const token = await currentUser.getIdToken();
+      const reviewIds = pendingReviews.map(rev => ({ 
+        stationId: rev.stationId, 
+        reviewId: rev.id 
+      }));
+
+      await axios.post(`${API_GATEWAY}/api/admin/reviews/approve-all`, 
+        { reviewIds },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      showNotify(`Successfully approved ${pendingReviews.length} reviews`, 'success');
+      fetchReviews();
+    } catch (err) {
+      showNotify('Bulk approval failed: ' + (err.response?.data?.error || err.message), 'error');
     }
   };
 
@@ -82,12 +106,21 @@ const ReviewsPage = () => {
           </h1>
           <p className="text-gray-500 text-sm font-medium mt-1">Approve or reject community station reviews</p>
         </div>
-        <button 
-          onClick={fetchReviews}
-          className="p-2 bg-white border border-gray-200 rounded-lg text-gray-600 hover:text-[#EAB308] hover:border-[#EAB308] transition-all shadow-sm"
-        >
-          <RefreshIcon />
-        </button>
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={handleApproveAll}
+            disabled={!reviews.some(r => r.status === 'pending')}
+            className="flex items-center gap-2 px-4 py-2 bg-[#16A34A] text-white rounded-lg text-sm font-bold shadow-sm hover:bg-green-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <CheckCircleIcon /> Approve All Pending
+          </button>
+          <button 
+            onClick={fetchReviews}
+            className="p-2 bg-white border border-gray-200 rounded-lg text-gray-600 hover:text-[#EAB308] hover:border-[#EAB308] transition-all shadow-sm"
+          >
+            <RefreshIcon />
+          </button>
+        </div>
       </div>
 
       {loading ? (

@@ -8,6 +8,7 @@ import {
   Delete as DeleteIcon,
   LocationOn as LocationOnIcon,
   CheckCircle as CheckCircleIcon,
+  AccessTime as AccessTimeIcon,
 } from "@mui/icons-material";
 import { Switch, Modal, TextField, MenuItem, Checkbox, ListItemText, Select, InputLabel, FormControl, Chip, Tabs, Tab, Box, Typography, LinearProgress } from "@mui/material";
 import * as XLSX from "xlsx";
@@ -61,8 +62,31 @@ const geocodeAddress = (address, city, state) =>
     }
   });
 
+// 📍 HAIVERSINE DISTANCE (for duplicate check)
+const getDistanceKm = (lat1, lng1, lat2, lng2) => {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLng/2) * Math.sin(dLng/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+};
+
 const CONNECTOR_OPTIONS = ["CCS2", "CHAdeMO", "Type 2 AC", "AC Slow"];
 const PAYMENT_OPTIONS = ["UPI", "Cash", "Card", "Net Banking"];
+
+const TIME_OPTIONS = [];
+let th = 0, tm = 0;
+while(th < 24) {
+  const hh = th.toString().padStart(2, '0');
+  const mm = tm.toString().padStart(2, '0');
+  const period = th < 12 ? 'AM' : 'PM';
+  const displayHour = th === 0 ? 12 : (th > 12 ? th - 12 : th);
+  TIME_OPTIONS.push({ value: `${hh}:${mm}`, label: `${displayHour.toString().padStart(2, '0')}:${mm} ${period}` });
+  tm += 30; if(tm >= 60) { th++; tm = 0; }
+}
 
 const getPaymentBadgeColor = (method) => {
   switch (method) {
@@ -82,12 +106,23 @@ const StationsPage = () => {
   // Modal states
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+  const [scheduleData, setScheduleData] = useState({
+    Monday: { isOpen: true, openTime: "09:00", closeTime: "22:00", slotDuration: 30 },
+    Tuesday: { isOpen: true, openTime: "09:00", closeTime: "22:00", slotDuration: 30 },
+    Wednesday: { isOpen: true, openTime: "09:00", closeTime: "22:00", slotDuration: 30 },
+    Thursday: { isOpen: true, openTime: "09:00", closeTime: "22:00", slotDuration: 30 },
+    Friday: { isOpen: true, openTime: "09:00", closeTime: "22:00", slotDuration: 30 },
+    Saturday: { isOpen: true, openTime: "09:00", closeTime: "22:00", slotDuration: 30 },
+    Sunday: { isOpen: true, openTime: "09:00", closeTime: "22:00", slotDuration: 30 },
+  });
   const [editingStation, setEditingStation] = useState(null);
 
   // Form states
   const [formData, setFormData] = useState({
     name: "", address: "", city: "", state: "", connectorTypes: [],
-    totalSlots: 4, pricePerUnit: 18, paymentMethods: ["UPI"]
+    totalSlots: 4, pricePerUnit: 18, paymentMethods: ["UPI"],
+    autoApproveReviews: false
   });
   const [editSlots, setEditSlots] = useState(0);
 
@@ -192,6 +227,7 @@ const StationsPage = () => {
         availableSlots: formData.totalSlots,
         pricePerUnit: formData.pricePerUnit,
         paymentMethods: formData.paymentMethods,
+        autoApproveReviews: formData.autoApproveReviews,
         status: 'open',
         isActive: true,
         rating: 0
@@ -206,7 +242,11 @@ const StationsPage = () => {
       fetchStations();
     } catch (e) {
       console.error(e);
-      showNotify("Failed to add station", "error");
+      if (e.response && e.response.status === 400 && e.response.data && e.response.data.error) {
+        showNotify(`Validation Error: ${e.response.data.error}`, "error");
+      } else {
+        showNotify("Failed to add station", "error");
+      }
     }
   };
 
@@ -225,6 +265,7 @@ const StationsPage = () => {
         totalSlots: formData.totalSlots,
         pricePerUnit: formData.pricePerUnit,
         paymentMethods: formData.paymentMethods,
+        autoApproveReviews: formData.autoApproveReviews,
         lat: formLat || editingStation.lat,
         lng: formLng || editingStation.lng
       }, { headers: { Authorization: `Bearer ${token}` } });
@@ -272,8 +313,8 @@ const StationsPage = () => {
         if (!row.city) missing.push("City");
         if (!row.state) missing.push("State");
         
-        const lat = parseFloat(row.lat);
-        const lng = parseFloat(row.lng);
+        const lat = parseFloat(row.latitude);
+        const lng = parseFloat(row.longitude);
         const isValidLat = !isNaN(lat) && lat >= -90 && lat <= 90;
         const isValidLng = !isNaN(lng) && lng >= -180 && lng <= 180;
         
@@ -290,6 +331,22 @@ const StationsPage = () => {
           return;
         }
 
+        // 🛑 DUPLICATE CHECK
+        const lowerName = row.name.trim().toLowerCase();
+        let isDuplicate = false;
+        let duplicateOf = "";
+
+        stations.forEach(st => {
+          if (st.name.trim().toLowerCase() === lowerName) {
+            // Check distance
+            const dist = getDistanceKm(lat, lng, st.lat, st.lng);
+            if (dist <= 0.2) {
+              isDuplicate = true;
+              duplicateOf = st.name;
+            }
+          }
+        });
+
         // Default values for optional fields
         validRows.push({
           id: Math.random().toString(36).substr(2, 9),
@@ -304,16 +361,21 @@ const StationsPage = () => {
           connectorTypes: row.connectorTypes ? row.connectorTypes.split(",").map(c => c.trim()) : ["CCS2"],
           paymentMethods: row.paymentMethods ? row.paymentMethods.split(",").map(p => p.trim()) : ["UPI"],
           status: 'open',
-          isActive: true
+          isActive: true,
+          isDuplicate,
+          duplicateOf
         });
       });
+
+      const dupeCount = validRows.filter(r => r.isDuplicate).length;
 
       setExcelData(validRows);
       setParsingErrors(errors);
       setUploadSummary({
         total: data.length,
-        valid: validRows.length,
+        valid: validRows.filter(r => !r.isDuplicate).length,
         skipped: skippedRows.length,
+        duplicates: dupeCount,
         firstError: skippedRows[0] || null
       });
     };
@@ -321,7 +383,7 @@ const StationsPage = () => {
   };
 
   const downloadTemplate = () => {
-    const headers = ["name", "address", "city", "state", "connectorTypes", "totalSlots", "pricePerUnit", "paymentMethods", "lat", "lng"];
+    const headers = ["name", "address", "city", "state", "connectorTypes", "totalSlots", "pricePerUnit", "paymentMethods", "latitude", "longitude"];
     const sampleRow = ["Tata Power EV Hub", "Baner Road, Baner", "Pune", "Maharashtra", "CCS2,Type2", 6, 18, "UPI,Cash", 18.5590, 73.7868];
     const ws = XLSX.utils.aoa_to_sheet([headers, sampleRow]);
     const wb = XLSX.utils.book_new();
@@ -335,8 +397,16 @@ const StationsPage = () => {
     
     try {
       const token = await currentUser.getIdToken();
+      const stationsToSave = excelData.filter(r => !r.isDuplicate);
+      
+      if (stationsToSave.length === 0) {
+        showNotify("No new stations to add (all are duplicates or invalid).", "warning");
+        setUploadingBulk(false);
+        return;
+      }
+
       const res = await axios.post(`${API_GATEWAY}/api/admin/stations/bulk-add`, {
-        stations: excelData
+        stations: stationsToSave
       }, { headers: { Authorization: `Bearer ${token}` } });
       
       if (res.data.success) {
@@ -484,7 +554,8 @@ const StationsPage = () => {
       connectorTypes: station.connectorTypes,
       totalSlots: station.totalSlots,
       pricePerUnit: station.pricePerUnit,
-      paymentMethods: station.paymentMethods || (station.upiSupported ? ["UPI"] : [])
+      paymentMethods: station.paymentMethods || (station.upiSupported ? ["UPI"] : []),
+      autoApproveReviews: station.autoApproveReviews || false
     });
     setEditSlots(station.availableSlots);
     setIsEditModalOpen(true);
@@ -492,6 +563,26 @@ const StationsPage = () => {
     setFormLng(station.lng);
     setMapInitialized(true);
     setTimeout(() => initAdminMap(station.lat || 20.5937, station.lng || 78.9629), 300);
+  };
+
+  const openSchedule = (station) => {
+    setEditingStation(station);
+    setIsScheduleModalOpen(true);
+  };
+
+  const handleSaveSchedule = async () => {
+    try {
+      const token = await currentUser.getIdToken();
+      await axios.put(`${API_GATEWAY}/api/stations/${editingStation.id}/schedule`, {
+        schedule: scheduleData
+      }, { headers: { Authorization: `Bearer ${token}` } });
+      
+      showNotify("Schedule updated and generating slots", "success");
+      setIsScheduleModalOpen(false);
+    } catch (e) {
+      console.error(e);
+      showNotify("Failed to update schedule", "error");
+    }
   };
 
   if (loading) return <div className="p-8 text-center text-gray-500">Loading Stations...</div>;
@@ -535,7 +626,7 @@ const StationsPage = () => {
           )}
           <button
             onClick={() => {
-              setFormData({ name: "", address: "", city: "", state: "", connectorTypes: [], totalSlots: 4, pricePerUnit: 18, paymentMethods: ["UPI"] });
+              setFormData({ name: "", address: "", city: "", state: "", connectorTypes: [], totalSlots: 4, pricePerUnit: 18, paymentMethods: ["UPI"], autoApproveReviews: false });
               setIsAddModalOpen(true);
               setTabValue(0);
               setExcelData([]);
@@ -565,8 +656,9 @@ const StationsPage = () => {
           <table className="w-full text-left border-collapse table-auto">
             <thead>
               <tr className="bg-[#F9FAFB] border-b border-gray-100 text-gray-500 text-[10px] sm:text-xs uppercase tracking-wider">
-                <th className="p-3 sm:p-4 font-bold">Station</th>
-                <th className="p-3 sm:p-4 font-bold">Location</th>
+                <th className="p-3 sm:p-4 font-bold text-left">ID</th>
+                <th className="p-3 sm:p-4 font-bold text-left">Station</th>
+                <th className="p-3 sm:p-4 font-bold text-left">Location</th>
                 <th className="p-3 sm:p-4 font-bold">Connectors</th>
                 <th className="p-3 sm:p-4 font-bold text-center">Slots</th>
                 <th className="p-3 sm:p-4 font-bold text-center">Price</th>
@@ -578,11 +670,25 @@ const StationsPage = () => {
             </thead>
             <tbody className="divide-y divide-gray-50">
               {stations.map(st => (
-                <tr key={st.id} className="hover:bg-gray-50/50 transition-colors">
-                  <td className="p-3 sm:p-4 font-black flex items-center gap-2 text-sm sm:text-base">
-                    <LocationOnIcon fontSize="small" className="text-gray-400 shrink-0" />
-                    <span className="truncate max-w-[120px] sm:max-w-[200px]" title={st.name}>{st.name}</span>
+                <tr key={st.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
+                  <td className="p-3 sm:p-4">
+                    <div className="flex items-center gap-2">
+                      <code className="bg-gray-100 px-1.5 py-0.5 rounded text-[9px] font-mono text-gray-500">{st.id.substring(0, 5)}...</code>
+                      <button 
+                        onClick={() => { navigator.clipboard.writeText(st.id); showNotify("ID Copied!", "success"); }}
+                        className="p-1 hover:bg-yellow-50 rounded transition-colors"
+                        title="Copy Full ID"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
+                        </svg>
+                      </button>
+                    </div>
                   </td>
+                    <td className="p-3 sm:p-4 font-black flex items-center gap-2 text-sm sm:text-base">
+                      <LocationOnIcon fontSize="small" className="text-gray-400 shrink-0" />
+                      <span className="truncate max-w-[120px] sm:max-w-[200px]" title={st.name}>{st.name}</span>
+                    </td>
                   <td className="p-3 sm:p-4 whitespace-normal">
                     <div className="text-xs sm:text-sm font-bold text-[#1A1A1A]">{st.city}</div>
                     <div className="text-[10px] sm:text-xs text-gray-500 leading-tight max-w-[140px]">{st.address}</div>
@@ -624,8 +730,9 @@ const StationsPage = () => {
                   </td>
                   <td className="p-3 sm:p-4 text-right sticky right-0 bg-white/95 backdrop-blur-sm z-10">
                     <div className="flex justify-end items-center gap-0 sm:gap-1">
-                      <button onClick={() => openEdit(st)} className="text-gray-400 hover:text-blue-600 p-1"><EditIcon sx={{ fontSize: { xs: 16, sm: 20 } }} /></button>
-                      <button onClick={() => handleDelete(st.id, st.name)} className="text-gray-400 hover:text-red-600 p-1"><DeleteIcon sx={{ fontSize: { xs: 16, sm: 20 } }} /></button>
+                      <button onClick={() => openSchedule(st)} className="text-gray-400 hover:text-green-600 p-1" title="Schedule"><AccessTimeIcon sx={{ fontSize: { xs: 16, sm: 20 } }} /></button>
+                      <button onClick={() => openEdit(st)} className="text-gray-400 hover:text-blue-600 p-1" title="Edit"><EditIcon sx={{ fontSize: { xs: 16, sm: 20 } }} /></button>
+                      <button onClick={() => handleDelete(st.id, st.name)} className="text-gray-400 hover:text-red-600 p-1" title="Delete"><DeleteIcon sx={{ fontSize: { xs: 16, sm: 20 } }} /></button>
                     </div>
                   </td>
                 </tr>
@@ -708,6 +815,22 @@ const StationsPage = () => {
                     ))}
                   </Select>
                 </FormControl>
+              </div>
+
+              {/* Auto Approve Reviews Toggle */}
+              <div className="flex items-center gap-3 bg-gray-50 border border-gray-200 p-4 rounded-xl">
+                <Switch
+                  checked={formData.autoApproveReviews}
+                  onChange={(e) => setFormData({ ...formData, autoApproveReviews: e.target.checked })}
+                  sx={{
+                    '& .MuiSwitch-switchBase.Mui-checked': { color: '#16A34A' },
+                    '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#16A34A' },
+                  }}
+                />
+                <div className="flex flex-col">
+                  <span className="text-xs font-bold text-gray-700">Auto-Approve Community Reviews</span>
+                  <span className="text-[10px] text-gray-400">Reviews from this station will be automatically approved</span>
+                </div>
               </div>
 
               {/* Find on Map Button (Only for Add) */}
@@ -813,6 +936,11 @@ const StationsPage = () => {
                     <div className="flex items-center gap-4 text-sm font-bold">
                        <span className="text-blue-600">Total: {uploadSummary.total}</span>
                        <span className="text-green-600">Valid: {uploadSummary.valid}</span>
+                       {uploadSummary.duplicates > 0 && (
+                          <span className="text-orange-500 bg-orange-50 px-2 py-0.5 rounded-full border border-orange-100">
+                            Duplicates: {uploadSummary.duplicates}
+                          </span>
+                       )}
                        <span className="text-red-500">
                           Skipped: {uploadSummary.skipped}
                           {uploadSummary.skipped > 0 && <button onClick={() => setShowErrorsDialog(true)} className="ml-2 text-xs underline hover:text-red-700 pointer">View All Details</button>}
@@ -852,8 +980,13 @@ const StationsPage = () => {
                       </thead>
                       <tbody className="divide-y divide-gray-100">
                         {excelData.map((row) => (
-                          <tr key={row.id} className="hover:bg-gray-50/50 transition-colors">
-                            <td className="p-2 min-w-[150px]"><input className="w-full bg-transparent border-none focus:ring-2 focus:ring-[#EAB308] focus:bg-yellow-50 rounded p-1 font-bold" value={row.name} onChange={e => setExcelData(excelData.map(r => r.id === row.id ? {...r, name: e.target.value} : r))} /></td>
+                          <tr key={row.id} className={`transition-colors ${row.isDuplicate ? 'bg-orange-50/30' : 'hover:bg-gray-50/50'}`}>
+                            <td className="p-2 min-w-[150px]">
+                              <div className="flex flex-col">
+                                <input className="w-full bg-transparent border-none focus:ring-2 focus:ring-[#EAB308] focus:bg-yellow-50 rounded p-1 font-bold" value={row.name} onChange={e => setExcelData(excelData.map(r => r.id === row.id ? {...r, name: e.target.value} : r))} />
+                                {row.isDuplicate && <span className="text-[10px] text-orange-600 font-bold px-1 flex items-center gap-1">⚠️ Already exists ({row.duplicateOf})</span>}
+                              </div>
+                            </td>
                             <td className="p-2 min-w-[200px]">
                                <input className="w-full bg-transparent border-none focus:ring-2 focus:ring-[#EAB308] focus:bg-yellow-50 rounded p-1" value={row.address} onChange={e => setExcelData(excelData.map(r => r.id === row.id ? {...r, address: e.target.value} : r))} />
                                <div className="text-[10px] text-gray-400 font-bold px-1">{row.city}, {row.state}</div>
@@ -928,6 +1061,91 @@ const StationsPage = () => {
       <Snackbar open={snackbar.open} autoHideDuration={4000} onClose={() => setSnackbar({ ...snackbar, open: false })} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
         <Alert severity={snackbar.severity} variant="filled" sx={{ width: '100%', fontWeight: 'bold' }}>{snackbar.message}</Alert>
       </Snackbar>
+
+      {/* SCHEDULE MODAL */}
+      <Modal open={isScheduleModalOpen} onClose={() => setIsScheduleModalOpen(false)}>
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white rounded-xl shadow-2xl p-4 sm:p-6 w-[95vw] lg:w-[650px] max-h-[90vh] overflow-y-auto">
+          <h2 className="text-xl font-black mb-4">Set Station Schedule</h2>
+          <p className="text-sm text-gray-500 mb-4">Set timings for {editingStation?.name}</p>
+          
+          <div className="space-y-4">
+            {Object.keys(scheduleData).map((day) => (
+              <div key={day} className="flex flex-col sm:flex-row items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-100 gap-4">
+                <div className="w-full sm:w-1/4 font-bold text-[#1A1A1A] text-sm sm:text-base">{day}</div>
+                
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <Switch 
+                    checked={scheduleData[day].isOpen} 
+                    onChange={e => setScheduleData({ ...scheduleData, [day]: { ...scheduleData[day], isOpen: e.target.checked } })}
+                    color="primary"
+                    size="small"
+                  />
+                  <span className={`text-xs font-bold w-12 ${scheduleData[day].isOpen ? 'text-[#16A34A]' : 'text-gray-400'}`}>
+                    {scheduleData[day].isOpen ? 'Open' : 'Closed'}
+                  </span>
+                </div>
+
+                {scheduleData[day].isOpen ? (
+                  <div className="flex items-center gap-3 w-full sm:w-auto flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <Select
+                        size="small"
+                        value={scheduleData[day].openTime}
+                        onChange={e => setScheduleData({ ...scheduleData, [day]: { ...scheduleData[day], openTime: e.target.value } })}
+                        sx={{ 
+                          bgcolor: 'white', 
+                          minWidth: 120, 
+                          fontSize: '14px', 
+                          fontWeight: '800', 
+                          borderRadius: '8px',
+                          '& .MuiSelect-select': { py: 1, px: 2 }
+                        }}
+                      >
+                        {TIME_OPTIONS.map(opt => <MenuItem key={"o"+opt.value} value={opt.value} sx={{ fontWeight: '600' }}>{opt.label}</MenuItem>)}
+                      </Select>
+                      <span className="text-gray-400 font-black text-xs uppercase tracking-widest px-1">to</span>
+                      <Select
+                        size="small"
+                        value={scheduleData[day].closeTime}
+                        onChange={e => setScheduleData({ ...scheduleData, [day]: { ...scheduleData[day], closeTime: e.target.value } })}
+                        sx={{ 
+                          bgcolor: 'white', 
+                          minWidth: 120, 
+                          fontSize: '14px', 
+                          fontWeight: '800', 
+                          borderRadius: '8px',
+                          '& .MuiSelect-select': { py: 1, px: 2 }
+                        }}
+                      >
+                        {TIME_OPTIONS.map(opt => <MenuItem key={"c"+opt.value} value={opt.value} sx={{ fontWeight: '600' }}>{opt.label}</MenuItem>)}
+                      </Select>
+                    </div>
+                    <TextField 
+                      label="Slot(min)" 
+                      type="number"
+                      size="small"
+                      value={scheduleData[day].slotDuration}
+                      onChange={e => setScheduleData({ ...scheduleData, [day]: { ...scheduleData[day], slotDuration: Number(e.target.value) } })}
+                      sx={{ width: 85, bgcolor: 'white', '& .MuiInputBase-input': { p: 1, fontSize: '13px', fontWeight: 'bold' } }}
+                    />
+                  </div>
+                ) : (
+                  <div className="flex-1 text-center sm:text-right text-gray-400 text-sm font-medium italic">
+                    Station closed all day
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <div className="flex justify-end gap-3 pt-6 border-t mt-6 font-medium">
+            <button onClick={() => setIsScheduleModalOpen(false)} className="px-5 py-2 rounded-lg border hover:bg-gray-50">Cancel</button>
+            <button onClick={handleSaveSchedule} className="px-5 py-2 rounded-lg bg-[#16A34A] hover:bg-[#15803D] text-white font-bold shadow-sm">
+              Save Schedule
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       <Dialog open={confirmDialog.open} onClose={() => setConfirmDialog({ ...confirmDialog, open: false })}>
         <DialogTitle sx={{ fontWeight: 'black' }}>{confirmDialog.title}</DialogTitle>

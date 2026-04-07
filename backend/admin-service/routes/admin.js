@@ -10,6 +10,49 @@ const verifyToken = require("../middleware/verifyToken");
 const verifyAdmin = require("../middleware/verifyAdmin");
 
 // ─────────────────────────────────────────────────────────────────────────────
+// UTILS
+// ─────────────────────────────────────────────────────────────────────────────
+function getDistanceKm(lat1, lng1, lat2, lng2) {
+  const R = 6371; // Earth's radius in km
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) *
+    Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+/** Recalculate average rating for a station */
+async function updateStationRating(stationId) {
+  try {
+    const reviewsSnapshot = await db.collection("stations").doc(stationId).collection("reviews")
+      .where("status", "in", ["approved", "pending"])
+      .get();
+
+    let totalRating = 0;
+    let count = reviewsSnapshot.size;
+
+    if (count === 0) {
+      await db.collection("stations").doc(stationId).update({ rating: 0 });
+      return;
+    }
+
+    reviewsSnapshot.forEach(doc => {
+      totalRating += (doc.data().rating || 0);
+    });
+
+    const averageRating = Number((totalRating / count).toFixed(1));
+    await db.collection("stations").doc(stationId).update({ rating: averageRating });
+    console.log(`[admin-service] Updated station ${stationId} rating to ${averageRating}`);
+  } catch (error) {
+    console.error(`[admin-service] Failed to update rating for station ${stationId}:`, error.message);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // MAPPLS GEOCODING HELPER
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -150,7 +193,9 @@ router.post("/stations/add", verifyToken, verifyAdmin, async (req, res) => {
     connectorTypes,
     totalSlots,
     pricePerUnit,
+    pricePerUnit,
     paymentMethods,
+    autoApproveReviews,
   } = req.body;
 
   // Validate required fields
@@ -166,23 +211,12 @@ router.post("/stations/add", verifyToken, verifyAdmin, async (req, res) => {
   const slots = Number(totalSlots);
 
   try {
-    // 🛑 DUPLICATE PREVENTION
-    const duplicateSnapshot = await db.collection("stations")
-      .where("name", "==", name.trim())
-      .where("city", "==", city.trim())
-      .get();
-
-    if (!duplicateSnapshot.empty) {
-      return res.status(400).json({
-        error: "Duplicate station",
-        message: `Station with name ${name} already exists in ${city}. Please verify before adding.`
-      });
-    }
+    // 📍 NORMALIZE LAT/LNG (Task 5)
+    let lat = Number(req.body.lat ?? req.body.latitude) || 0;
+    let lng = Number(req.body.lng ?? req.body.longitude) || 0;
 
     // 📍 AUTO-GEOCODE: if frontend didn't supply valid lat/lng, do it server-side
-    let lat = Number(req.body.lat) || 0;
-    let lng = Number(req.body.lng) || 0;
-
+    // This must happen BEFORE duplicate check so we have coordinates to compare
     if (!lat || !lng) {
       console.log(`[admin-service] Geocoding "${name}" at "${address}, ${city}, ${state}"...`);
       const coords = await geocodeAddress(address, city, state);
@@ -192,6 +226,34 @@ router.post("/stations/add", verifyToken, verifyAdmin, async (req, res) => {
       } else {
         console.warn(`[admin-service] Geocoding failed for "${name}" — saving with lat=0, lng=0`);
       }
+    }
+
+    // 🛑 DUPLICATE PREVENTION (Task 4)
+    // Same name (case-insensitive) AND nearby location (within ~200 meters)
+    const stationsSnapshot = await db.collection("stations").get();
+    
+    let isDuplicate = false;
+    const incomingName = name.trim().toLowerCase();
+
+    for (const doc of stationsSnapshot.docs) {
+      const station = doc.data();
+      const existingName = (station.name || "").trim().toLowerCase();
+      
+      if (incomingName === existingName) {
+        if (lat !== 0 && lng !== 0 && station.lat && station.lng) {
+          const distKm = getDistanceKm(lat, lng, station.lat, station.lng);
+          if (distKm <= 0.2) {
+            isDuplicate = true;
+            break;
+          }
+        }
+      }
+    }
+
+    if (isDuplicate) {
+      return res.status(400).json({
+        error: "Station already exists",
+      });
     }
 
     const now = admin.firestore.FieldValue.serverTimestamp();
@@ -207,6 +269,7 @@ router.post("/stations/add", verifyToken, verifyAdmin, async (req, res) => {
       status: "open",
       pricePerUnit: Number(pricePerUnit),
       paymentMethods: Array.isArray(paymentMethods) ? paymentMethods : ["UPI"],
+      autoApproveReviews: Boolean(autoApproveReviews),
       rating: 0,
       isActive: true,
       lat,
@@ -300,8 +363,20 @@ router.put("/stations/:id", verifyToken, verifyAdmin, async (req, res) => {
     const existing = stationDoc.data();
 
     // No backend geocoding; use lat/lng from frontend if provided
-    if (updates.lat !== undefined) updates.lat = Number(updates.lat);
-    if (updates.lng !== undefined) updates.lng = Number(updates.lng);
+    // Also normalize latitude/longitude (Task 5)
+    if (updates.lat !== undefined) {
+      updates.lat = Number(updates.lat);
+    } else if (updates.latitude !== undefined) {
+      updates.lat = Number(updates.latitude);
+      delete updates.latitude;
+    }
+
+    if (updates.lng !== undefined) {
+      updates.lng = Number(updates.lng);
+    } else if (updates.longitude !== undefined) {
+      updates.lng = Number(updates.longitude);
+      delete updates.longitude;
+    }
 
     await stationRef.update({
       ...updates,
@@ -405,10 +480,14 @@ router.post("/stations/bulk-add", verifyToken, verifyAdmin, async (req, res) => 
     const now = admin.firestore.FieldValue.serverTimestamp();
     const stationsCol = db.collection("stations");
     
+    // Fetch all existing stations for duplicate comparison
+    const existingSnapshot = await stationsCol.get();
+    const existingStations = existingSnapshot.docs.map(doc => doc.data());
+    
     // Firestore batch limit is 500 operations.
-    // We break the array into chunks of 500 even though the UI handles it.
     const CHUNK_SIZE = 500;
     let totalSuccess = 0;
+    let skippedDuplicates = 0;
 
     for (let i = 0; i < stations.length; i += CHUNK_SIZE) {
       const chunk = stations.slice(i, i + CHUNK_SIZE);
@@ -417,8 +496,30 @@ router.post("/stations/bulk-add", verifyToken, verifyAdmin, async (req, res) => 
       chunk.forEach((st) => {
         const slots = Number(st.totalSlots) || 1;
         const price = Number(st.pricePerUnit) || 0;
-        const lat = Number(st.lat);
-        const lng = Number(st.lng);
+        const lat = Number(st.lat ?? st.latitude) || 0;
+        const lng = Number(st.lng ?? st.longitude) || 0;
+
+        // 🛑 DUPLICATE CHECK (Backend fail-safe)
+        const incomingName = (st.name || "").trim().toLowerCase();
+        let isBatchDuplicate = false;
+
+        for (const existing of existingStations) {
+          const existingName = (existing.name || "").trim().toLowerCase();
+          if (incomingName === existingName) {
+            if (lat !== 0 && lng !== 0 && existing.lat && existing.lng) {
+              const distKm = getDistanceKm(lat, lng, existing.lat, existing.lng);
+              if (distKm <= 0.2) {
+                isBatchDuplicate = true;
+                break;
+              }
+            }
+          }
+        }
+
+        if (isBatchDuplicate) {
+          skippedDuplicates++;
+          return;
+        }
 
         const stationData = {
           name: (st.name || "").trim(),
@@ -431,6 +532,7 @@ router.post("/stations/bulk-add", verifyToken, verifyAdmin, async (req, res) => 
           status: "open",
           pricePerUnit: price,
           paymentMethods: Array.isArray(st.paymentMethods) ? st.paymentMethods : ["UPI"],
+          autoApproveReviews: false, // Default for bulk upload
           rating: 0,
           isActive: true,
           lat,
@@ -443,16 +545,17 @@ router.post("/stations/bulk-add", verifyToken, verifyAdmin, async (req, res) => 
 
         const newDocRef = stationsCol.doc();
         batch.set(newDocRef, stationData);
+        totalSuccess++;
       });
 
       await batch.commit();
-      totalSuccess += chunk.length;
     }
 
     res.json({
       success: true,
-      message: `Bulk add complete. ${totalSuccess} stations added.`,
-      addedCount: totalSuccess
+      message: `Bulk add complete. ${totalSuccess} stations added. ${skippedDuplicates} duplicates skipped.`,
+      addedCount: totalSuccess,
+      skippedDuplicates
     });
   } catch (error) {
     console.error("[admin-service] Bulk add error:", error.message);
@@ -694,10 +797,91 @@ router.patch("/reviews/:stationId/:reviewId", verifyToken, verifyAdmin, async (r
       moderatedBy: req.uid
     });
 
+    // Recalculate average rating
+    await updateStationRating(stationId);
+
     res.json({ success: true, message: `Review ${status} successfully` });
   } catch (error) {
     console.error("[admin-service] Update review status error:", error.message);
     res.status(500).json({ error: "Failed to update review status" });
+  }
+});
+
+// POST /api/admin/reviews/approve-all
+// Bulk approve reviews
+router.post("/reviews/approve-all", verifyToken, verifyAdmin, async (req, res) => {
+  const { reviewIds } = req.body;
+  
+  if (!reviewIds || !Array.isArray(reviewIds) || reviewIds.length === 0) {
+    return res.status(400).json({ error: "reviewIds array is required" });
+  }
+
+  try {
+    const batch = db.batch();
+    
+    for (const item of reviewIds) {
+      const { stationId, reviewId } = item;
+      if (!stationId || !reviewId) continue;
+      
+      const reviewRef = db.collection("stations").doc(stationId).collection("reviews").doc(reviewId);
+      batch.update(reviewRef, {
+        status: "approved",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        moderatedBy: req.uid
+      });
+    }
+
+    await batch.commit();
+
+    // Recalculate ratings for all impacted stations (unique list)
+    const impactedStations = [...new Set(reviewIds.map(item => item.stationId))];
+    for (const sid of impactedStations) {
+      if (sid) await updateStationRating(sid);
+    }
+
+    res.json({ success: true, message: `Successfully approved ${reviewIds.length} reviews` });
+  } catch (error) {
+    console.error("[admin-service] Bulk approve reviews error:", error.message);
+    res.status(500).json({ error: "Failed to bulk approve reviews" });
+  }
+});
+
+// POST /api/admin/reviews/reject-all
+// Bulk reject reviews
+router.post("/reviews/reject-all", verifyToken, verifyAdmin, async (req, res) => {
+  const { reviewIds } = req.body;
+  
+  if (!reviewIds || !Array.isArray(reviewIds) || reviewIds.length === 0) {
+    return res.status(400).json({ error: "reviewIds array is required" });
+  }
+
+  try {
+    const batch = db.batch();
+    
+    for (const item of reviewIds) {
+      const { stationId, reviewId } = item;
+      if (!stationId || !reviewId) continue;
+      
+      const reviewRef = db.collection("stations").doc(stationId).collection("reviews").doc(reviewId);
+      batch.update(reviewRef, {
+        status: "rejected",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        moderatedBy: req.uid
+      });
+    }
+
+    await batch.commit();
+
+    // Recalculate ratings for all impacted stations
+    const impactedStations = [...new Set(reviewIds.map(item => item.stationId))];
+    for (const sid of impactedStations) {
+      if (sid) await updateStationRating(sid);
+    }
+
+    res.json({ success: true, message: `Successfully rejected ${reviewIds.length} reviews` });
+  } catch (error) {
+    console.error("[admin-service] Bulk reject reviews error:", error.message);
+    res.status(500).json({ error: "Failed to bulk reject reviews" });
   }
 });
 

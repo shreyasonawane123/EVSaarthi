@@ -1,0 +1,35 @@
+{
+  "hosting": {
+    "public": "public",
+    "rewrites": [
+      {
+        "source": "/admin/**",
+        "destination": "/admin/index.html"
+      },
+      {
+        "source": "/booking/**",
+        "destination": "/booking/index.html"
+      },
+      {
+        "source": "/auth/**",
+        "destination": "/auth/index.html"
+      },
+      {
+        "source": "/dashboard/**",
+        "destination": "/dashboard/index.html"
+      },
+      {
+        "source": "/map/**",
+        "destination": "/map/index.html"
+      },
+      {
+        "source": "/profile/**",
+        "destination": "/profile/index.html"
+      },
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  }
+}

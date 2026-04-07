@@ -3,6 +3,8 @@ const express = require("express");
 const router = express.Router();
 const { db, admin } = require("../config/firebase");
 const verifyToken = require("../middleware/verifyToken");
+const verifyOperator = require("../middleware/verifyOperator");
+const { generateSlotsForStation } = require("../utils/slotGenerator");
 
 // Haversine formula
 function getDistanceKm(lat1, lng1, lat2, lng2) {
@@ -16,6 +18,33 @@ function getDistanceKm(lat1, lng1, lat2, lng2) {
     Math.sin(dLng / 2) * Math.sin(dLng / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
+}
+
+/** Recalculate average rating for a station (includes pending & approved) */
+async function updateStationRating(stationId) {
+  try {
+    const reviewsSnapshot = await db.collection("stations").doc(stationId).collection("reviews")
+      .where("status", "in", ["approved", "pending"])
+      .get();
+
+    let totalRating = 0;
+    let count = reviewsSnapshot.size;
+
+    if (count === 0) {
+      await db.collection("stations").doc(stationId).update({ rating: 0 });
+      return;
+    }
+
+    reviewsSnapshot.forEach(doc => {
+      totalRating += (doc.data().rating || 0);
+    });
+
+    const averageRating = Number((totalRating / count).toFixed(1));
+    await db.collection("stations").doc(stationId).update({ rating: averageRating });
+    console.log(`[station-service] Updated station ${stationId} rating to ${averageRating}`);
+  } catch (error) {
+    console.error(`[station-service] Failed to update rating for station ${stationId}:`, error.message);
+  }
 }
 
 // GET /api/stations/health
@@ -158,6 +187,8 @@ router.post("/:id/reviews", verifyToken, async (req, res) => {
       if (!bookingSnapshot.empty) verifiedVisit = true;
     }
 
+    const autoApprove = stationDoc.data().autoApproveReviews || false;
+
     const reviewId = req.uid; // One review per user per station
     const reviewData = {
       userId: req.uid,
@@ -167,13 +198,18 @@ router.post("/:id/reviews", verifyToken, async (req, res) => {
       photoUrl: photoUrl || null,
       verifiedVisit,
       bookingId: bookingId || null,
-      status: "pending",
+      status: autoApprove ? "approved" : "pending",
       timestamp: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
 
     await stationRef.collection("reviews").doc(reviewId).set(reviewData, { merge: true });
-    res.json({ success: true, message: "Review submitted for moderation", verifiedVisit });
+    
+    // Recalculate average rating immediately (now includes pending/approved logic)
+    await updateStationRating(stationId);
+    
+    const message = autoApprove ? "Review posted successfully" : "Review submitted for moderation";
+    res.json({ success: true, message, verifiedVisit });
   } catch (error) {
     console.error("[station-service] Submit review error:", error.message);
     res.status(500).json({ error: "Failed to submit review" });
@@ -200,6 +236,93 @@ router.get("/:id", async (req, res) => {
   } catch (error) {
     console.error("[station-service] Get single station error:", error.message);
     res.status(500).json({ error: "Failed to fetch station" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/stations/:id/generate-slots
+// Generates slots for the next 7 days based on schedule (Task 3)
+// ─────────────────────────────────────────────────────────────────────────────
+router.post("/:id/generate-slots", verifyToken, async (req, res) => {
+  try {
+    const result = await generateSlotsForStation(req.params.id);
+    res.json(result);
+  } catch (error) {
+    console.error("[station-service] Generate slots error:", error.message);
+    res.status(500).json({ error: "Failed to generate slots", details: error.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PUT /api/stations/:id/schedule
+// Updates the station schedule per day (Task 2)
+// ─────────────────────────────────────────────────────────────────────────────
+router.put("/:id/schedule", verifyToken, async (req, res) => {
+  const { schedule } = req.body; // Expects an array or object of days
+  const stationId = req.params.id;
+
+  if (!schedule) {
+    return res.status(400).json({ error: "Schedule data is required" });
+  }
+
+  try {
+    const batch = db.batch();
+    
+    // schedule format: { "Monday": { isOpen: true, openTime: "09:00", closeTime: "22:00", slotDuration: 30 } }
+    for (const [day, data] of Object.entries(schedule)) {
+      const scheduleRef = db.collection("stations").doc(stationId).collection("schedule").doc(day);
+      batch.set(scheduleRef, {
+        day,
+        isOpen: Boolean(data.isOpen),
+        openTime: data.openTime || null,
+        closeTime: data.closeTime || null,
+        slotDuration: Number(data.slotDuration) || 30,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+    }
+
+    await batch.commit();
+
+    // After updating schedule, auto-generate future slots without touching existing ones
+    // We can do it asynchronously to not block the request
+    generateSlotsForStation(stationId).catch(err => {
+      console.error("[station-service] Async slot generation failed after schedule update:", err.message);
+    });
+
+    res.json({ success: true, message: "Schedule updated successfully and future slots are being regenerated" });
+  } catch (error) {
+    console.error("[station-service] Update schedule error:", error.message);
+    res.status(500).json({ error: "Failed to update schedule" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/stations/:id/slots
+// Fetch dynamically generated available slots for a specific date
+// ─────────────────────────────────────────────────────────────────────────────
+router.get("/:id/slots", async (req, res) => {
+  const { date } = req.query; // YYYY-MM-DD
+  if (!date) return res.status(400).json({ error: "Date parameter is required" });
+
+  try {
+    const slotsSnapshot = await db.collection("stations").doc(req.params.id)
+      .collection("slots")
+      .where("date", "==", date)
+      .where("status", "==", "available")
+      .get();
+
+    const slots = [];
+    slotsSnapshot.forEach(doc => {
+      slots.push(doc.data().time);
+    });
+
+    // Sort chronologically
+    slots.sort();
+
+    res.json({ success: true, slots });
+  } catch (error) {
+    console.error("[station-service] Fetch slots error:", error.message);
+    res.status(500).json({ error: "Failed to fetch slots" });
   }
 });
 

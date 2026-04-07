@@ -2,6 +2,7 @@
   "name": "ev-saarthi-profile-app",
   "version": "1.0.0",
   "private": true,
+  "homepage": "/profile",
   "dependencies": {
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",

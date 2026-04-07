@@ -9,4 +9,5 @@ serviceAccountKey.json
 # Builds
 build/
 dist/
+public/
 .DS_Store

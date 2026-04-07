@@ -81,9 +81,14 @@ const buildPopupHTML = (station) => `
     <h3 style="margin:0 0 4px;font-size:16px;font-weight:bold;color:#1A1A1A;">
       ${station.name}
     </h3>
-    <p style="margin:0 0 12px;font-size:13px;color:#6B7280;">
+    <p style="margin:0 0 8px;font-size:13px;color:#6B7280;">
       ${station.address}
     </p>
+    <div style="display:flex;align-items:center;gap:4px;margin-bottom:12px;">
+      <span style="color:#EAB308;font-size:16px;">★</span>
+      <span style="font-size:14px;font-weight:800;color:#1A1A1A;">${station.rating ? station.rating.toFixed(1) : 'No ratings'}</span>
+      ${station.rating ? `<span style="font-size:12px;color:#6B7280;font-weight:500;">/ 5.0</span>` : ''}
+    </div>
     <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;">
       ${(station.connectorTypes || [])
         .map(t => `<span style="background:#EFF6FF;color:#2563EB;font-size:10px;font-weight:600;padding:2px 8px;border-radius:4px;">${t}</span>`).join('')}
@@ -451,6 +456,14 @@ const MapPage = () => {
                   OPEN
                 </span>
               </div>
+
+              {/* RATING */}
+              {station.rating > 0 && (
+                <div style={{ display: "flex", alignItems: "center", gap: 3, marginTop: 4 }}>
+                  <span style={{ color: "#EAB308", fontSize: "14px" }}>★</span>
+                  <span style={{ fontSize: "12px", fontWeight: "700", color: "#1A1A1A" }}>{station.rating.toFixed(1)}</span>
+                </div>
+              )}
 
               {/* ADDRESS */}
               <div

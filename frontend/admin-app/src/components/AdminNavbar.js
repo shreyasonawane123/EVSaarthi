@@ -23,16 +23,16 @@ const AdminNavbar = () => {
     window.location.href = 'http://localhost:3000/login';
   };
 
-  const navLinks = [
-    { label: 'Overview',  path: '/admin',          exact: true,  icon: <DashboardIcon fontSize="small" /> },
-    { label: 'Stations',  path: '/admin/stations',  exact: false, icon: <EvStationIcon fontSize="small" /> },
-    { label: 'Users',     path: '/admin/users',     exact: false, icon: <PeopleIcon fontSize="small" /> },
-    { label: 'Reviews',   path: '/admin/reviews',    exact: false, icon: <RateReviewIcon fontSize="small" /> },
-    // Team link — only rendered for superadmins
-    ...(adminRole === 'superadmin'
-      ? [{ label: 'Team', path: '/admin/team', exact: false, icon: <GroupIcon fontSize="small" /> }]
-      : []),
+  const NAV_LINKS = [
+    { path: "/admin", label: "Overview", icon: <DashboardIcon fontSize="small" />, exact: true },
+    { path: "/admin/stations", label: "Stations", icon: <EvStationIcon fontSize="small" />, exact: false },
+    { path: "/admin/users", label: "Users", icon: <PeopleIcon fontSize="small" />, exact: false },
+    { path: "/admin/reviews", label: "Reviews", icon: <RateReviewIcon fontSize="small" />, exact: false },
+    { path: "/admin/operators", label: "Operators", icon: <GroupIcon fontSize="small" />, exact: false },
+    { path: "/admin/team", label: "Team", icon: <GroupIcon fontSize="small" />, exact: false, role: "superadmin" },
   ];
+
+  const navLinks = NAV_LINKS.filter(link => !link.role || link.role === adminRole);
 
   const isActive = (path, exact) => {
     if (exact) return location.pathname === path || location.pathname === '/admin/';
