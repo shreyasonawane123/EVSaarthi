@@ -10,7 +10,9 @@ const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
 if (!admin.apps.length) {
     if (serviceAccountKey) {
         // Option A: Use Base64 encoded JSON string from environment variable (Secure)
-        const buff = Buffer.from(serviceAccountKey, 'base64');
+        // Clean the string to remove any unexpected whitespace/newlines from copy-paste
+        const cleanKey = serviceAccountKey.replace(/\s/g, '');
+        const buff = Buffer.from(cleanKey, 'base64');
         const serviceAccount = JSON.parse(buff.toString('utf-8'));
         admin.initializeApp({
             credential: admin.credential.cert(serviceAccount),
