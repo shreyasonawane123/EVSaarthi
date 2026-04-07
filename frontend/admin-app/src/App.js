@@ -13,22 +13,22 @@ import OperatorsPage from "./pages/OperatorsPage";
 
 function App() {
   return (
-    <Router>
+    <Router basename="/app-admin">
       <AuthProvider>
         <div className="flex flex-col min-h-screen bg-[#F5F5F5] font-sans">
           <AdminNavbar />
           <main className="flex-grow pb-16">
             <Routes>
               {/* Protected Admin Routes */}
-              <Route path="/admin" element={<AdminProtectedRoute><OverviewPage /></AdminProtectedRoute>} />
-              <Route path="/admin/stations" element={<AdminProtectedRoute><StationsPage /></AdminProtectedRoute>} />
-              <Route path="/admin/users" element={<AdminProtectedRoute><UsersPage /></AdminProtectedRoute>} />
-              <Route path="/admin/team" element={<AdminProtectedRoute><TeamPage /></AdminProtectedRoute>} />
-              <Route path="/admin/operators" element={<AdminProtectedRoute><OperatorsPage /></AdminProtectedRoute>} />
-              <Route path="/admin/reviews" element={<AdminProtectedRoute><ReviewsPage /></AdminProtectedRoute>} />
+              <Route path="/" element={<AdminProtectedRoute><OverviewPage /></AdminProtectedRoute>} />
+              <Route path="/stations" element={<AdminProtectedRoute><StationsPage /></AdminProtectedRoute>} />
+              <Route path="/users" element={<AdminProtectedRoute><UsersPage /></AdminProtectedRoute>} />
+              <Route path="/team" element={<AdminProtectedRoute><TeamPage /></AdminProtectedRoute>} />
+              <Route path="/operators" element={<AdminProtectedRoute><OperatorsPage /></AdminProtectedRoute>} />
+              <Route path="/reviews" element={<AdminProtectedRoute><ReviewsPage /></AdminProtectedRoute>} />
 
               {/* Default catch-all */}
-              <Route path="*" element={<Navigate to="/admin" replace />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </main>
         </div>
