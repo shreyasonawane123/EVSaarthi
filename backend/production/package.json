@@ -15,7 +15,8 @@
     "firebase-admin": "^11.10.1",
     "http-proxy-middleware": "^3.0.0",
     "jsonwebtoken": "^9.0.1",
-    "morgan": "^1.10.0"
+    "morgan": "^1.10.0",
+    "razorpay": "^2.9.6"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
