@@ -9,16 +9,11 @@
     { "source": "/profile/static/(.*)", "destination": "/profile/static/$1" },
     { "source": "/admin/((?!static/).*)", "destination": "/admin/index.html" },
     { "source": "/admin", "destination": "/admin/index.html" },
-    { "source": "/auth/((?!static/).*)", "destination": "/auth/index.html" },
-    { "source": "/auth", "destination": "/auth/index.html" },
-    { "source": "/booking/((?!static/).*)", "destination": "/booking/index.html" },
-    { "source": "/booking", "destination": "/booking/index.html" },
-    { "source": "/dashboard/((?!static/).*)", "destination": "/dashboard/index.html" },
-    { "source": "/dashboard", "destination": "/dashboard/index.html" },
-    { "source": "/map/((?!static/).*)", "destination": "/map/index.html" },
-    { "source": "/map", "destination": "/map/index.html" },
-    { "source": "/profile/((?!static/).*)", "destination": "/profile/index.html" },
-    { "source": "/profile", "destination": "/profile/index.html" },
+    { "source": "/map/", "destination": "/map/index.html" },
+    { "source": "/booking/", "destination": "/booking/index.html" },
+    { "source": "/admin/", "destination": "/admin/index.html" },
+    { "source": "/dashboard/", "destination": "/dashboard/index.html" },
+    { "source": "/analytics/", "destination": "/analytics/index.html" },
     { "source": "/((?!static/).*)", "destination": "/index.html" }
   ]
 }

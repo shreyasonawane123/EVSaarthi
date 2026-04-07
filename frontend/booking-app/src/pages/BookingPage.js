@@ -18,7 +18,7 @@ import {
 import { storage } from "../firebase/config";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 
-const GATEWAY_URL = process.env.REACT_APP_API_GATEWAY_URL || "http://localhost:5000";
+const GATEWAY_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
 const BookingPage = () => {
   const { currentUser } = useAuth();

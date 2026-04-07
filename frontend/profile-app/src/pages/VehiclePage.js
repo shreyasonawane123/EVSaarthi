@@ -11,7 +11,7 @@ import {
 } from "@mui/icons-material";
 import { CircularProgress } from "@mui/material";
 
-const API = process.env.REACT_APP_API_GATEWAY_URL || "http://localhost:5000";
+const API = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
 // ─── Main Component ───────────────────────────────────────────
 const VehiclePage = () => {
