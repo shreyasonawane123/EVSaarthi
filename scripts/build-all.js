@@ -37,7 +37,13 @@ apps.forEach(app => {
   try {
     // Run npm install (first time) and npm run build
     execSync('npm install --no-audit --no-fund', { cwd: appPath, stdio: 'inherit' });
-    execSync('npm run build', { cwd: appPath, stdio: 'inherit' });
+    
+    // We set CI=false so that minor linting warnings don't stop the build on Vercel/CI
+    execSync('npm run build', { 
+      cwd: appPath, 
+      stdio: 'inherit', 
+      env: { ...process.env, CI: 'false' } 
+    });
 
     const buildPath = path.join(appPath, 'build');
     const targetPath = app.target ? path.join(publicDir, app.target) : publicDir;
