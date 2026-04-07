@@ -1,19 +1,13 @@
 {
   "version": 2,
   "rewrites": [
-    { "source": "/admin/static/(.*)", "destination": "/admin/static/$1" },
-    { "source": "/auth/static/(.*)", "destination": "/auth/static/$1" },
-    { "source": "/booking/static/(.*)", "destination": "/booking/static/$1" },
-    { "source": "/dashboard/static/(.*)", "destination": "/dashboard/static/$1" },
-    { "source": "/map/static/(.*)", "destination": "/map/static/$1" },
-    { "source": "/profile/static/(.*)", "destination": "/profile/static/$1" },
-    { "source": "/admin/((?!static/).*)", "destination": "/admin/index.html" },
-    { "source": "/admin", "destination": "/admin/index.html" },
-    { "source": "/map/", "destination": "/map/index.html" },
-    { "source": "/booking/", "destination": "/booking/index.html" },
-    { "source": "/admin/", "destination": "/admin/index.html" },
-    { "source": "/dashboard/", "destination": "/dashboard/index.html" },
-    { "source": "/analytics/", "destination": "/analytics/index.html" },
+    { "source": "/app-map/", "destination": "/app-map/index.html" },
+    { "source": "/app-booking/", "destination": "/app-booking/index.html" },
+    { "source": "/app-admin/", "destination": "/app-admin/index.html" },
+    { "source": "/app-dashboard/", "destination": "/app-dashboard/index.html" },
+    { "source": "/app-analytics/", "destination": "/app-analytics/index.html" },
+    { "source": "/app-profile/", "destination": "/app-profile/index.html" },
+    { "source": "/app-auth/", "destination": "/app-auth/index.html" },
     { "source": "/((?!static/).*)", "destination": "/index.html" }
   ]
 }
