@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo, useRef } from "react";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
-import { db } from "../firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import { db, auth } from "../firebase";
 
 import {
   EvStation as EvStationIcon,
@@ -132,26 +133,51 @@ const MapPage = () => {
   const infoWindowRef = useRef(null);
   const cardRefs = useRef({});
 
-  // FETCH STATIONS
+  // FETCH STATIONS — Now gated by Auth
   useEffect(() => {
-    const q = query(collection(db, "stations"), where("isActive", "==", true));
+    // Listen for Auth state changes
+    const unsubAuth = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        console.log("MapPage: User authenticated, starting Firestore listener.");
+        const q = query(collection(db, "stations"), where("isActive", "==", true));
 
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const data = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        }));
-        setStations(data);
-        setLoading(false);
-      },
-      (error) => {
-        console.error("DEBUG: onSnapshot error:", error);
+        const unsubFirestore = onSnapshot(
+          q,
+          (snapshot) => {
+            const data = snapshot.docs.map((doc) => ({
+              id: doc.id,
+              ...doc.data(),
+            }));
+            setStations(data);
+            setLoading(false);
+          },
+          (error) => {
+            console.error("DEBUG: onSnapshot error:", error);
+            if (error.code === 'permission-denied') {
+              showNotify("Permission denied. Please try refreshing or re-logging.", "error");
+            }
+          }
+        );
+
+        // Store this so we can cleanup if the user logs out or component unmounts
+        window._unsubMapFirestore = unsubFirestore;
+      } else {
+        console.log("MapPage: User not authenticated, data fetching paused.");
+        setStations([]);
+        if (window._unsubMapFirestore) {
+          window._unsubMapFirestore();
+          window._unsubMapFirestore = null;
+        }
       }
-    );
+    });
 
-    return () => unsubscribe();
+    return () => {
+      unsubAuth();
+      if (window._unsubMapFirestore) {
+        window._unsubMapFirestore();
+        window._unsubMapFirestore = null;
+      }
+    };
   }, []);
 
   const filteredStations = useMemo(() => {
