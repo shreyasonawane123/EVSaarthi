@@ -5,11 +5,12 @@ import "./index.css";
 
 function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename="/app-map">
       <div className="App">
         <Routes>
+          <Route path="/" element={<MapPage />} />
           <Route path="/map" element={<MapPage />} />
-          <Route path="*" element={<Navigate to="/map" replace />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>
     </BrowserRouter>

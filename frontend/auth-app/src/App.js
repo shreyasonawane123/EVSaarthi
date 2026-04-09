@@ -9,10 +9,11 @@ import LoginPage from "./pages/LoginPage";
 function App() {
   return (
     <AuthProvider>
-      <Router>
+      <Router basename="/app-auth">
         <Routes>
+          <Route path="/" element={<LoginPage />} />
           <Route path="/login" element={<LoginPage />} />
-          <Route path="*" element={<Navigate to="/login" replace />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Router>
     </AuthProvider>

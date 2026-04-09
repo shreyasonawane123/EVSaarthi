@@ -9,7 +9,7 @@ import "./index.css";
 function App() {
   return (
     <AuthProvider>
-      <Router>
+      <Router basename="/app-booking">
         <Routes>
           <Route 
             path="/" 
