@@ -4,12 +4,12 @@ const fs = require('fs');
 const path = require('path');
 
 const apps = [
-  { name: 'admin-app', folder: 'admin-app', target: 'admin' },
-  { name: 'auth-app', folder: 'auth-app', target: 'auth' },
-  { name: 'booking-app', folder: 'booking-app', target: 'booking' },
-  { name: 'dashboard-app', folder: 'dashboard-app', target: 'dashboard' },
-  { name: 'map-app', folder: 'map-app', target: 'map' },
-  { name: 'profile-app', folder: 'profile-app', target: 'profile' },
+  { name: 'admin-app', folder: 'admin-app', target: 'app-admin' },
+  { name: 'auth-app', folder: 'auth-app', target: 'app-auth' },
+  { name: 'booking-app', folder: 'booking-app', target: 'app-booking' },
+  { name: 'dashboard-app', folder: 'dashboard-app', target: 'app-dashboard' },
+  { name: 'map-app', folder: 'map-app', target: 'app-map' },
+  { name: 'profile-app', folder: 'profile-app', target: 'app-profile' },
   { name: 'shell-app', folder: 'shell-app', target: '' } // shell app is root
 ];
 
