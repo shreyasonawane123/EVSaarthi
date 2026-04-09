@@ -24,18 +24,18 @@ const AdminNavbar = () => {
   };
 
   const NAV_LINKS = [
-    { path: "/admin", label: "Overview", icon: <DashboardIcon fontSize="small" />, exact: true },
-    { path: "/admin/stations", label: "Stations", icon: <EvStationIcon fontSize="small" />, exact: false },
-    { path: "/admin/users", label: "Users", icon: <PeopleIcon fontSize="small" />, exact: false },
-    { path: "/admin/reviews", label: "Reviews", icon: <RateReviewIcon fontSize="small" />, exact: false },
-    { path: "/admin/operators", label: "Operators", icon: <GroupIcon fontSize="small" />, exact: false },
-    { path: "/admin/team", label: "Team", icon: <GroupIcon fontSize="small" />, exact: false, role: "superadmin" },
+    { path: "/", label: "Overview", icon: <DashboardIcon fontSize="small" />, exact: true },
+    { path: "/stations", label: "Stations", icon: <EvStationIcon fontSize="small" />, exact: false },
+    { path: "/users", label: "Users", icon: <PeopleIcon fontSize="small" />, exact: false },
+    { path: "/reviews", label: "Reviews", icon: <RateReviewIcon fontSize="small" />, exact: false },
+    { path: "/operators", label: "Operators", icon: <GroupIcon fontSize="small" />, exact: false },
+    { path: "/team", label: "Team", icon: <GroupIcon fontSize="small" />, exact: false, role: "superadmin" },
   ];
 
   const navLinks = NAV_LINKS.filter(link => !link.role || link.role === adminRole);
 
   const isActive = (path, exact) => {
-    if (exact) return location.pathname === path || location.pathname === '/admin/';
+    if (exact) return location.pathname === path || location.pathname === '/';
     return location.pathname.startsWith(path);
   };
 
@@ -44,7 +44,7 @@ const AdminNavbar = () => {
       {/* LEFT - LOGO */}
       <div
         className="flex items-center gap-2.5 cursor-pointer"
-        onClick={() => navigate('/admin')}
+        onClick={() => navigate('/')}
       >
         <div className="w-9 h-9 bg-[#EAB308] rounded-lg flex items-center justify-center">
           <BoltIcon className="text-[#1A1A1A] !text-[20px]" />
