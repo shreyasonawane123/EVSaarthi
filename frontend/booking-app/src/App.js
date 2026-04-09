@@ -12,6 +12,15 @@ function App() {
       <Router>
         <Routes>
           <Route 
+            path="/" 
+            element={
+              <ProtectedRoute>
+                <BookingPage />
+              </ProtectedRoute>
+            } 
+          />
+          {/* Support both root and /booking paths */}
+          <Route 
             path="/booking" 
             element={
               <ProtectedRoute>
@@ -19,8 +28,6 @@ function App() {
               </ProtectedRoute>
             } 
           />
-          {/* Default Route */}
-          <Route path="*" element={<Navigate to="/booking" replace />} />
         </Routes>
       </Router>
     </AuthProvider>
