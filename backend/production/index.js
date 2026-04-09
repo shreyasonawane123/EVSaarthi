@@ -18,6 +18,12 @@ app.use(cors({
     credentials: true
 }));
 
+// ── Diagnostic Request Logger ─────────────────────────────────────
+app.use((req, res, next) => {
+    console.log(`[INCOMING REQUEST]: ${req.method} ${req.originalUrl}`);
+    next();
+});
+
 // ── Health Check ──────────────────────────────────────────────────
 app.get("/api/health", (req, res) => {
     res.json({
@@ -29,12 +35,12 @@ app.get("/api/health", (req, res) => {
 
 // ── Service Routers ───────────────────────────────────────────────
 const authRouter = require("./routes/auth").router;
-const userRouter = require("./routes/user");
+const userRouter = require("./routes/user").router;
 const stationRouter = require("./routes/stations").router;
-const bookingRouter = require("./routes/booking");
-const vehicleRouter = require("./routes/vehicle");
+const bookingRouter = require("./routes/booking").router;
+const vehicleRouter = require("./routes/vehicle").router;
 const adminRouter = require("./routes/admin").router;
-const operatorsRouter = require("./routes/operators");
+const operatorsRouter = require("./routes/operators").router;
 
 // ── Mount Routes ──────────────────────────────────────────────────
 // These match the paths originally used by the API Gateway

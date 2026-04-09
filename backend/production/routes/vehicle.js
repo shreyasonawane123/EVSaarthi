@@ -39,4 +39,4 @@ router.get("/me", verifyToken, async (req, res) => {
   } catch (err) { res.status(500).json({ error: "Failed to fetch vehicle" }); }
 });
 
-module.exports = router;
+module.exports = { router };

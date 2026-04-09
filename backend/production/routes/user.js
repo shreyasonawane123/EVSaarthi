@@ -50,4 +50,4 @@ router.post("/profile", verifyToken, async (req, res) => {
   }
 });
 
-module.exports = router;
+module.exports = { router };
