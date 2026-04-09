@@ -404,61 +404,6 @@ const BookingPage = () => {
         </div>
       </div>
 
-      {/* SECTION 4: Reviews (Moved higher and added ID for scrolling) */}
-      <div id="reviews-section" className="pt-4 space-y-6">
-        <div className="flex justify-between items-center bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-          <div>
-            <h2 className="text-xl font-black text-[#1A1A1A]">Community Experience</h2>
-            <p className="text-gray-500 font-medium text-xs">Verified feedback from real station visitors</p>
-          </div>
-          <div className="text-right">
-            <div className="text-3xl font-black text-[#1A1A1A] flex items-center justify-end gap-1">
-               {station?.rating ? station.rating.toFixed(1) : "0.0"}
-               <StarIcon sx={{ color: '#EAB308' }} />
-            </div>
-            <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{reviews.length} Total Reviews</div>
-          </div>
-        </div>
-
-        {loadingReviews ? (
-          <div className="text-gray-400 font-bold p-4">Loading reviews...</div>
-        ) : reviews.length === 0 ? (
-          <div className="bg-white border-2 border-dashed border-gray-100 rounded-2xl p-10 text-center text-gray-400 font-bold italic">
-            No approved reviews yet. Be the first to share your experience!
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {reviews.map(rev => (
-              <div key={rev.id} className="bg-white border border-gray-100 p-5 rounded-2xl shadow-sm hover:shadow-md transition-shadow">
-                <div className="flex justify-between items-start mb-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-[#F5F3FF] text-[#7C3AED] rounded-full flex items-center justify-center font-black text-xs">
-                      {rev.userName?.charAt(0).toUpperCase()}
-                    </div>
-                    <div>
-                      <div className="font-black text-xs text-[#1A1A1A]">{rev.userName}</div>
-                      <div className="text-[9px] text-gray-400 font-bold uppercase tracking-widest">
-                        {new Date(rev.timestamp).toLocaleDateString()}
-                      </div>
-                    </div>
-                  </div>
-                  {rev.verifiedVisit && (
-                    <div className="flex items-center gap-1 text-[#16A34A] bg-green-50 px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider border border-green-100">
-                      <VerifiedIcon style={{ fontSize: 10 }} /> Verified
-                    </div>
-                  )}
-                </div>
-                <Rating value={rev.rating} readOnly size="small" sx={{ mb: 1, color: '#EAB308' }} />
-                <p className="text-gray-700 text-xs font-medium leading-relaxed italic">"{rev.text}"</p>
-                {rev.photoUrl && (
-                  <img src={rev.photoUrl} alt="Review" className="mt-3 rounded-lg max-h-32 w-full object-cover border border-gray-50 shadow-sm" />
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
       <hr className="border-gray-100" />
 
       {/* SECTION 2: Booking Form */}
@@ -579,7 +524,6 @@ const BookingPage = () => {
         </div>
       )}
 
-      {/* SECTION 3: My Bookings */}
       <div className="mt-12 pt-8 border-t border-gray-200">
         <h2 className="text-2xl font-black text-[#1A1A1A] mb-6">My Bookings</h2>
         
@@ -626,6 +570,61 @@ const BookingPage = () => {
                     </button>
                   )}
                 </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* SECTION 4: Reviews (Moved to the end of the page) */}
+      <div id="reviews-section" className="mt-12 pt-8 border-t border-gray-200 space-y-6">
+        <div className="flex justify-between items-center bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+          <div>
+            <h2 className="text-xl font-black text-[#1A1A1A]">Community Experience</h2>
+            <p className="text-gray-500 font-medium text-xs">Verified feedback from real station visitors</p>
+          </div>
+          <div className="text-right">
+            <div className="text-3xl font-black text-[#1A1A1A] flex items-center justify-end gap-1">
+               {station?.rating ? station.rating.toFixed(1) : "0.0"}
+               <StarIcon sx={{ color: '#EAB308' }} />
+            </div>
+            <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{reviews.length} Total Reviews</div>
+          </div>
+        </div>
+
+        {loadingReviews ? (
+          <div className="text-gray-400 font-bold p-4">Loading reviews...</div>
+        ) : reviews.length === 0 ? (
+          <div className="bg-white border-2 border-dashed border-gray-100 rounded-2xl p-10 text-center text-gray-400 font-bold italic">
+            No approved reviews yet. Be the first to share your experience!
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {reviews.map(rev => (
+              <div key={rev.id} className="bg-white border border-gray-100 p-5 rounded-2xl shadow-sm hover:shadow-md transition-shadow">
+                <div className="flex justify-between items-start mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-[#F5F3FF] text-[#7C3AED] rounded-full flex items-center justify-center font-black text-xs">
+                      {rev.userName?.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <div className="font-black text-xs text-[#1A1A1A]">{rev.userName}</div>
+                      <div className="text-[9px] text-gray-400 font-bold uppercase tracking-widest">
+                        {new Date(rev.timestamp).toLocaleDateString()}
+                      </div>
+                    </div>
+                  </div>
+                  {rev.verifiedVisit && (
+                    <div className="flex items-center gap-1 text-[#16A34A] bg-green-50 px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider border border-green-100">
+                      <VerifiedIcon style={{ fontSize: 10 }} /> Verified
+                    </div>
+                  )}
+                </div>
+                <Rating value={rev.rating} readOnly size="small" sx={{ mb: 1, color: '#EAB308' }} />
+                <p className="text-gray-700 text-xs font-medium leading-relaxed italic">"{rev.text}"</p>
+                {rev.photoUrl && (
+                  <img src={rev.photoUrl} alt="Review" className="mt-3 rounded-lg max-h-32 w-full object-cover border border-gray-50 shadow-sm" />
+                )}
               </div>
             ))}
           </div>
