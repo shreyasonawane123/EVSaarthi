@@ -51,6 +51,65 @@ router.get("/stats", verifyToken, verifyAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: "Failed to fetch stats" }); }
 });
 
+// ─── ADMIN USERS LISTING ─────────────────────────────────────────────
+router.get("/users", verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    const snapshot = await db.collection("users").get();
+    const users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    res.json({ success: true, users });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch users" });
+  }
+});
+
+// ─── ADMIN TEAM MANAGEMENT ───────────────────────────────────────────
+router.get("/team", verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    const snapshot = await db.collection("adminUsers").get();
+    const admins = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() }));
+    res.json({ success: true, admins });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch team" });
+  }
+});
+
+router.post("/team/add", verifyToken, verifyAdmin, async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: "Email is required" });
+
+  try {
+    // 1. Find user in the main users collection
+    const snapshot = await db.collection("users").where("email", "==", email.toLowerCase()).limit(1).get();
+    if (snapshot.empty) {
+      return res.status(404).json({ error: "User not found. They must sign in once first." });
+    }
+
+    const userDoc = snapshot.docs[0];
+    const userData = userDoc.data();
+
+    // 2. Add to adminUsers
+    await db.collection("adminUsers").doc(userDoc.id).set({
+      name: userData.name || "Admin",
+      email: userData.email,
+      role: "admin",
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    res.json({ success: true, message: "Admin added", admin: { name: userData.name, email: userData.email } });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to add admin" });
+  }
+});
+
+router.delete("/team/:uid", verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    await db.collection("adminUsers").doc(req.params.uid).delete();
+    res.json({ success: true, message: "Admin removed" });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to remove admin" });
+  }
+});
+
 router.get("/reviews", verifyToken, verifyAdmin, async (req, res) => {
   try {
     const snapshot = await db.collectionGroup("reviews").get();

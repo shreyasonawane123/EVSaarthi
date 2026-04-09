@@ -192,13 +192,24 @@ const OperatorsPage = () => {
   // without a backend endpoint this won't populate freely.
   
   // Note: we'll simulate fetching for now.
+  // Fetch all operators from the backend
   const fetchOperators = useCallback(async () => {
     setFetching(true);
-    setTimeout(() => {
-        setOperators([]);
-        setFetching(false);
-    }, 500);
-  }, []);
+    try {
+      const token = await currentUser.getIdToken();
+      const res = await axios.get(`${API}/api/operators`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.data.success) {
+        setOperators(res.data.operators);
+      }
+    } catch (err) {
+      console.error("Failed to fetch operators", err);
+      setToast({ type: "error", msg: "Failed to load operators." });
+    } finally {
+      setFetching(false);
+    }
+  }, [currentUser]);
 
   useEffect(() => { fetchOperators(); }, [fetchOperators]);
 

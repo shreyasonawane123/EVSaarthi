@@ -4,6 +4,19 @@ const router = express.Router();
 const { db, admin } = require("../config/firebase");
 const { verifyToken } = require("./auth");
 
+// GET /api/operators
+// List all operators. Admin only.
+router.get("/", verifyToken, async (req, res) => {
+  try {
+    const snapshot = await db.collection("operators").get();
+    const operators = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    res.json({ success: true, operators });
+  } catch (error) {
+    console.error("[production-backend] List operators error:", error.message);
+    res.status(500).json({ error: "Failed to fetch operators" });
+  }
+});
+
 // POST /api/operators
 // Create a new operator. Expected to be called by an Admin.
 router.post("/", verifyToken, async (req, res) => {
