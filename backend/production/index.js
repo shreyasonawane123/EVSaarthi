@@ -28,12 +28,12 @@ app.get("/api/health", (req, res) => {
 });
 
 // ── Service Routers ───────────────────────────────────────────────
-const { router: authRouter } = require("./routes/auth");
+const authRouter = require("./routes/auth").router;
 const userRouter = require("./routes/user");
-const { router: stationRouter } = require("./routes/stations");
+const stationRouter = require("./routes/stations").router;
 const bookingRouter = require("./routes/booking");
 const vehicleRouter = require("./routes/vehicle");
-const { router: adminRouter } = require("./routes/admin");
+const adminRouter = require("./routes/admin").router;
 const operatorsRouter = require("./routes/operators");
 
 // ── Mount Routes ──────────────────────────────────────────────────

@@ -77,27 +77,44 @@ router.post("/team/add", verifyToken, verifyAdmin, async (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ error: "Email is required" });
 
+  const targetEmail = email.trim().toLowerCase();
+  console.log(`[admin-backend] Attempting to add admin: ${targetEmail}`);
+
   try {
     // 1. Find user in the main users collection
-    const snapshot = await db.collection("users").where("email", "==", email.toLowerCase()).limit(1).get();
+    // We check both the 'email' field and the document ID (if it's an email)
+    const snapshot = await db.collection("users").where("email", "==", targetEmail).limit(1).get();
+    
     if (snapshot.empty) {
-      return res.status(404).json({ error: "User not found. They must sign in once first." });
+      console.warn(`[admin-backend] User lookup failed for: ${targetEmail}`);
+      return res.status(404).json({ 
+        error: "User not found in EV Saarthi database. They must sign in with Google once first." 
+      });
     }
 
     const userDoc = snapshot.docs[0];
     const userData = userDoc.data();
+    const uid = userDoc.id;
+
+    console.log(`[admin-backend] User found: ${userData.name} (UID: ${uid}). Adding to adminUsers.`);
 
     // 2. Add to adminUsers
-    await db.collection("adminUsers").doc(userDoc.id).set({
+    await db.collection("adminUsers").doc(uid).set({
       name: userData.name || "Admin",
-      email: userData.email,
+      email: targetEmail,
       role: "admin",
-      createdAt: admin.firestore.FieldValue.serverTimestamp()
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedBy: req.uid
     });
 
-    res.json({ success: true, message: "Admin added", admin: { name: userData.name, email: userData.email } });
+    res.json({ 
+      success: true, 
+      message: "Admin added successfully", 
+      admin: { name: userData.name, email: targetEmail } 
+    });
   } catch (err) {
-    res.status(500).json({ error: "Failed to add admin" });
+    console.error(`[admin-backend] Critical error adding admin:`, err.message);
+    res.status(500).json({ error: "Failed to add admin: Internal server error" });
   }
 });
 
