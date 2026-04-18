@@ -13,7 +13,7 @@ import OperatorsPage from "./pages/OperatorsPage";
 
 function App() {
   return (
-    <Router basename="/app-admin">
+    <Router>
       <AuthProvider>
         <div className="flex flex-col min-h-screen bg-[#F5F5F5] font-sans">
           <AdminNavbar />

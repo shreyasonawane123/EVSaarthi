@@ -31,12 +31,12 @@ const MapPage = () => {
           }
 
           const query = new URLSearchParams({ token, name, city });
-          const finalUrl = `/app-map/?${query.toString()}`;
+          const finalUrl = `http://localhost:3003/?${query.toString()}`;
           console.log("MapPage: Setting map URL:", finalUrl);
           setMapUrl(finalUrl);
         } catch (error) {
           console.error("Failed to get token for map app:", error);
-          setMapUrl("/app-map/");
+          setMapUrl("http://localhost:3003/");
         }
       } else {
         setMapUrl("");

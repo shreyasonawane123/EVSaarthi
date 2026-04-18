@@ -26,8 +26,8 @@ const BookingPage = () => {
   
   // Pass the query param through to the iframe
   const iframeUrl = stationId 
-    ? `/app-booking/?stationId=${stationId}&token=${token.val}&name=${token.name}`
-    : `/app-booking/?token=${token.val}&name=${token.name}`;
+    ? `http://localhost:3004/?stationId=${stationId}&token=${token.val}&name=${token.name}`
+    : `http://localhost:3004/?token=${token.val}&name=${token.name}`;
 
   return (
     <div style={{ height: "calc(100vh - 64px)", width: "100%" }}>

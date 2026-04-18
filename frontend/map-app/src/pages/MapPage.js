@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo, useRef } from "react";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
-import { db, auth } from "../firebase";
+import { auth } from "../firebase";
+import axios from "axios";
 
 import {
   EvStation as EvStationIcon,
@@ -11,6 +11,8 @@ import {
 } from "@mui/icons-material";
 import CircularProgress from "@mui/material/CircularProgress";
 import { Alert, Snackbar } from "@mui/material";
+
+const API_GATEWAY = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
 function getDistanceKm(lat1, lng1, lat2, lng2) {
   const R = 6371;
@@ -29,7 +31,6 @@ function getDistanceKm(lat1, lng1, lat2, lng2) {
 }
 
 const connectors = ["All", "CCS2", "CHADEMO", "TYPE2"];
-const radii = [5, 10, 20, 50];
 
 const normalize = (str) => str.toLowerCase().replace(/\s/g, "");
 
@@ -106,7 +107,7 @@ const buildPopupHTML = (station) => `
       ? `<div style="background:#F0FDF4;color:#16A34A;font-size:11px;font-weight:bold;padding:3px 8px;border-radius:4px;margin-bottom:12px;display:inline-block;">UPI Accepted</div>`
       : ''}
     <button
-      onclick="window.parent.location.href='/booking?stationId=${station.id}'"
+      onclick="window.top.location.href='http://localhost:3000/booking?stationId=${station.id}'"
       style="width:100%;background:#EAB308;border:none;border-radius:8px;padding:10px;font-size:14px;font-weight:bold;color:#1A1A1A;cursor:pointer;">
       Book a Slot
     </button>
@@ -133,51 +134,56 @@ const MapPage = () => {
   const infoWindowRef = useRef(null);
   const cardRefs = useRef({});
 
-  // FETCH STATIONS — Now gated by Auth
+  // FETCH STATIONS — Switched to API Gateway for better Iframe / Local Port support
   useEffect(() => {
-    // Listen for Auth state changes
-    const unsubAuth = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        console.log("MapPage: User authenticated, starting Firestore listener.");
-        const q = query(collection(db, "stations"), where("isActive", "==", true));
+    // 1. Check for token in URL (for iframe support on localhost)
+    const urlParams = new URLSearchParams(window.location.search);
+    const tokenParam = urlParams.get("token");
 
-        const unsubFirestore = onSnapshot(
-          q,
-          (snapshot) => {
-            const data = snapshot.docs.map((doc) => ({
-              id: doc.id,
-              ...doc.data(),
-            }));
-            setStations(data);
-            setLoading(false);
-          },
-          (error) => {
-            console.error("DEBUG: onSnapshot error:", error);
-            if (error.code === 'permission-denied') {
-              showNotify("Permission denied. Please try refreshing or re-logging.", "error");
-            }
-          }
-        );
+    const fetchStationsApi = async (token) => {
+      setLoading(true);
+      try {
+        console.log("MapPage: Fetching stations from API Gateway...");
+        const response = await axios.get(`${API_GATEWAY}/api/stations/all`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
 
-        // Store this so we can cleanup if the user logs out or component unmounts
-        window._unsubMapFirestore = unsubFirestore;
-      } else {
-        console.log("MapPage: User not authenticated, data fetching paused.");
-        setStations([]);
-        if (window._unsubMapFirestore) {
-          window._unsubMapFirestore();
-          window._unsubMapFirestore = null;
+        if (response.data.success) {
+          console.log(`MapPage: Loaded ${response.data.stations.length} stations.`);
+          setStations(response.data.stations);
         }
+      } catch (error) {
+        console.error("MapPage: API Error:", error.message);
+        if (error.response?.status === 403 || error.response?.status === 401) {
+          showNotify("Session expired or unauthorized. Please re-login.", "error");
+        } else {
+          showNotify("Failed to fetch stations from server.", "error");
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (tokenParam) {
+      console.log("MapPage: Using token from URL.");
+      fetchStationsApi(tokenParam);
+      const interval = setInterval(() => fetchStationsApi(tokenParam), 30000);
+      return () => clearInterval(interval);
+    }
+
+    // 2. Fallback: Standard Auth Listener for standalone mode
+    const unsubAuth = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        const token = await user.getIdToken();
+        fetchStationsApi(token);
+      } else {
+        console.log("MapPage: No user detected.");
+        setStations([]);
+        setLoading(false);
       }
     });
 
-    return () => {
-      unsubAuth();
-      if (window._unsubMapFirestore) {
-        window._unsubMapFirestore();
-        window._unsubMapFirestore = null;
-      }
-    };
+    return () => unsubAuth();
   }, []);
 
   const filteredStations = useMemo(() => {

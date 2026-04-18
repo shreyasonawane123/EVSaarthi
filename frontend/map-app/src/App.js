@@ -5,7 +5,7 @@ import "./index.css";
 
 function App() {
   return (
-    <BrowserRouter basename="/app-map">
+    <BrowserRouter>
       <div className="App">
         <Routes>
           <Route path="/" element={<MapPage />} />

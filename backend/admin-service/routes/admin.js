@@ -193,7 +193,6 @@ router.post("/stations/add", verifyToken, verifyAdmin, async (req, res) => {
     connectorTypes,
     totalSlots,
     pricePerUnit,
-    pricePerUnit,
     paymentMethods,
     autoApproveReviews,
   } = req.body;
