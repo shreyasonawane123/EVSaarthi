@@ -4,19 +4,19 @@ import {
   Group as GroupIcon,
   PersonAdd as PersonAddIcon,
   AccountCircle as AccountCircleIcon,
-  Email as EmailIcon,
   Close as CloseIcon,
   CheckCircle as CheckCircleIcon,
   ErrorOutline as ErrorOutlineIcon,
   Edit as EditIcon,
+  Delete as DeleteIcon,
 } from "@mui/icons-material";
 import CircularProgress from "@mui/material/CircularProgress";
 import axios from "axios";
-import { TextField, Chip } from "@mui/material";
+import { TextField, MenuItem, Select, InputLabel, FormControl } from "@mui/material";
+import { Business as BusinessIcon } from "@mui/icons-material";
 
 const API = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
-// ─── Toast ───────────────────────────────────────────────────────────────────
 const Toast = ({ toast, onClose }) => {
   useEffect(() => {
     if (!toast) return;
@@ -50,32 +50,39 @@ const Toast = ({ toast, onClose }) => {
   );
 };
 
-const AddOperatorModal = ({ onClose, onSuccess, currentUser, editingOperator }) => {
+const AddOperatorModal = ({ onClose, onSuccess, currentUser, editingOperator, availableStations }) => {
   const [email, setEmail]     = useState(editingOperator?.email || "");
   const [password, setPassword] = useState("");
   const [name, setName]       = useState(editingOperator?.name || "");
-  const [stations, setStations] = useState(editingOperator?.assignedStations?.join(",") || "");
+  const [stationId, setStationId] = useState(editingOperator?.stationId || "");
   const [error, setError]     = useState("");
   const [loading, setLoading] = useState(false);
 
   const handleSave = async () => {
     setError("");
     if (!email || (!editingOperator && !password)) { setError("Email and Password are required."); return; }
+    if (!stationId) { setError("Please assign a station to this operator."); return; }
 
     setLoading(true);
     try {
       const token = await currentUser.getIdToken();
       let res;
-      const assignedStationsArray = stations.split(",").map(s => s.trim()).filter(x => x);
+      
+      const payload = {
+        name,
+        email,
+        stationId
+      };
 
       if (editingOperator) {
-        res = await axios.put(`${API}/api/operators/${editingOperator.id}`, {
-          name, assignedStations: assignedStationsArray
-        }, { headers: { Authorization: `Bearer ${token}` } });
+        res = await axios.put(`${API}/api/operators/${editingOperator.id}`, payload, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
       } else {
-        res = await axios.post(`${API}/api/operators`, {
-          email, password, name, assignedStations: assignedStationsArray
-        }, { headers: { Authorization: `Bearer ${token}` } });
+        payload.password = password;
+        res = await axios.post(`${API}/api/operators`, payload, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
       }
 
       if (res.data.success) {
@@ -84,7 +91,8 @@ const AddOperatorModal = ({ onClose, onSuccess, currentUser, editingOperator }) 
         setError(res.data.error || "Something went wrong.");
       }
     } catch (err) {
-      setError("Network error or invalid data.");
+      const msg = err.response?.data?.error || "Network error. Please check if the services are running.";
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -93,7 +101,7 @@ const AddOperatorModal = ({ onClose, onSuccess, currentUser, editingOperator }) 
   return (
     <div style={{
       position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)",
-      display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9000,
+      display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000,
     }}>
       <div style={{
         background: "#fff", borderRadius: 16, padding: "24px 20px",
@@ -134,14 +142,23 @@ const AddOperatorModal = ({ onClose, onSuccess, currentUser, editingOperator }) 
             onChange={e => setName(e.target.value)} 
             fullWidth size="small"
           />
-          <TextField 
-            label="Assigned Station IDs (comma separated)" 
-            value={stations} 
-            onChange={e => setStations(e.target.value)} 
-            placeholder="e.g. station1, station2"
-            helperText="You can find Station IDs in the 'Stations' tab list."
-            fullWidth size="small"
-          />
+          
+          <FormControl fullWidth size="small">
+            <InputLabel id="station-select-label">Assigned Station</InputLabel>
+            <Select
+              labelId="station-select-label"
+              value={stationId}
+              label="Assigned Station"
+              onChange={e => setStationId(e.target.value)}
+            >
+              <MenuItem value=""><em>None</em></MenuItem>
+              {availableStations.map(station => (
+                <MenuItem key={station.id} value={station.id}>
+                  {station.name} ({station.city})
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
         </div>
 
         {error && (
@@ -181,42 +198,70 @@ const OperatorsPage = () => {
   const { currentUser, adminRole } = useAuth();
   
   const [operators, setOperators]           = useState([]);
+  const [availableStations, setAvailableStations] = useState([]);
+  const [tenants, setTenants]               = useState([]);
   const [fetching, setFetching]             = useState(true);
   const [showModal, setShowModal]           = useState(false);
   const [editingOperator, setEditingOperator]= useState(null);
   const [toast, setToast]                   = useState(null);
 
-  // In real implementation we'd fetch all operators from a dedicated GET /operators endpoint
-  // Since we only made GET /operators/:id, we can manually fetch them or assume we have a list.
-  // Wait, I didn't create a GET /operators. Let me just use dummy data or empty array for now since 
-  // without a backend endpoint this won't populate freely.
-  
-  // Note: we'll simulate fetching for now.
-  // Fetch all operators from the backend
-  const fetchOperators = useCallback(async () => {
+  const fetchData = useCallback(async () => {
     setFetching(true);
     try {
       const token = await currentUser.getIdToken();
-      const res = await axios.get(`${API}/api/operators`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (res.data.success) {
-        setOperators(res.data.operators);
+      
+      const reqs = [
+        axios.get(`${API}/api/operators`, { headers: { Authorization: `Bearer ${token}` } }),
+        axios.get(`${API}/api/admin/stations`, { headers: { Authorization: `Bearer ${token}` } })
+      ];
+
+      if (adminRole === 'superadmin') {
+        reqs.push(axios.get(`${API}/api/admin/tenants`, { headers: { Authorization: `Bearer ${token}` } }));
       }
+
+      const results = await Promise.all(reqs);
+      
+      if (results[0].data.success) setOperators(results[0].data.operators);
+      if (results[1].data.success) setAvailableStations(results[1].data.stations);
+      if (results[2] && results[2].data.success) setTenants(results[2].data.tenants);
+
     } catch (err) {
-      console.error("Failed to fetch operators", err);
+      console.error("Failed to fetch data", err);
       setToast({ type: "error", msg: "Failed to load operators." });
     } finally {
       setFetching(false);
     }
-  }, [currentUser]);
+  }, [currentUser, adminRole]);
 
-  useEffect(() => { fetchOperators(); }, [fetchOperators]);
+  useEffect(() => { fetchData(); }, [fetchData]);
 
-  const handleSaveSuccess = (name) => {
+  const handleSaveSuccess = (opName) => {
     setShowModal(false);
-    setToast({ type: "success", msg: `${name} saved successfully!` });
-    fetchOperators();
+    fetchData();
+    setToast({ type: "success", msg: `Operator ${opName} saved!` });
+  };
+  
+  const handleDelete = async (operator) => {
+    try {
+      const token = await currentUser.getIdToken();
+      const res = await axios.delete(`${API}/api/operators/${operator.id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (res.data.success) {
+        setToast({ type: "success", msg: "Operator deleted successfully" });
+        fetchData();
+      } else {
+        setToast({ type: "error", msg: res.data.error || "Failed to delete operator" });
+      }
+    } catch (err) {
+      setToast({ type: "error", msg: "Delete failed. Check your connection." });
+    }
+  };
+
+  const getStationName = (stationId) => {
+    const station = availableStations.find(s => s.id === stationId);
+    return station ? station.name : "Unknown / Unassigned (" + stationId + ")";
   };
 
   return (
@@ -246,27 +291,123 @@ const OperatorsPage = () => {
               </p>
             </div>
           </div>
-          <button
-            onClick={() => { setEditingOperator(null); setShowModal(true); }}
-            style={{
-              padding: "11px 20px", background: "#EAB308", border: "none",
-              borderRadius: 8, fontSize: 14, fontWeight: 700, color: "#1A1A1A",
-              cursor: "pointer", display: "flex", alignItems: "center", gap: 8
-            }}
-          >
-            <PersonAddIcon fontSize="small" /> Add Operator
-          </button>
+          {adminRole !== "superadmin" && (
+            <button
+              onClick={() => { setEditingOperator(null); setShowModal(true); }}
+              style={{
+                padding: "11px 20px", background: "#EAB308", border: "none",
+                borderRadius: 8, fontSize: 14, fontWeight: 700, color: "#1A1A1A",
+                cursor: "pointer", display: "flex", alignItems: "center", gap: 8
+              }}
+            >
+              <PersonAddIcon fontSize="small" /> Add Operator
+            </button>
+          )}
         </div>
 
-        <div style={{ background: "#fff", borderRadius: 16, padding: "30px", textAlign: "center", color: "#6B7280" }}>
-            <p>For fully listing operators, a GET /operators endpoint would be required in the backend.</p>
-            <p>You can add operators and they will be saved to Firestore.</p>
+        <div style={{
+          background: "#fff", borderRadius: 16,
+          boxShadow: "0 2px 12px rgba(0,0,0,0.06)", overflow: "hidden",
+        }}>
+          <div style={{ overflowX: "auto", width: "100%" }}>
+            {fetching ? (
+              <div style={{ padding: 64, display: "flex", alignItems: "center", justifyContent: "center", gap: 16 }}>
+                <CircularProgress style={{ color: "#EAB308" }} size={28} />
+                <span style={{ color: "#6B7280", fontSize: 14 }}>Loading operators...</span>
+              </div>
+            ) : operators.length === 0 ? (
+              <div style={{ padding: 64, textAlign: "center" }}>
+                <GroupIcon style={{ fontSize: 64, color: "#D1D5DB", marginBottom: 16 }} />
+                <p style={{ fontSize: 16, fontWeight: 700, color: "#374151", margin: "0 0 6px" }}>
+                  No operators found
+                </p>
+                <p style={{ fontSize: 13, color: "#9CA3AF", margin: 0 }}>
+                  Add a new operator to assign them to a station.
+                </p>
+              </div>
+            ) : (
+              <table style={{ width: "100%", minWidth: "800px", borderCollapse: "collapse", whiteSpace: "nowrap" }}>
+                <thead>
+                  <tr style={{ background: "#F9FAFB", borderBottom: "2px solid #E5E7EB" }}>
+                    {["Operator", "Email", "Assigned Station", adminRole === "superadmin" ? "Tenant" : null, "Actions"].filter(Boolean).map((h) => (
+                      <th key={h} style={{
+                        padding: "12px 16px", textAlign: "left",
+                        fontSize: 11, fontWeight: 700, color: "#6B7280",
+                        textTransform: "uppercase", letterSpacing: "0.05em",
+                      }}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {operators.map((op, i) => (
+                    <tr
+                      key={op.id}
+                      style={{ borderBottom: i < operators.length - 1 ? "1px solid #F3F4F6" : "none" }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = "#FAFAFA"}
+                      onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                    >
+                      <td style={{ padding: "14px 16px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <AccountCircleIcon style={{ fontSize: 38, color: "#D1D5DB" }} />
+                          <span style={{ fontSize: 14, fontWeight: 700, color: "#1A1A1A" }}>
+                            {op.name || "Unknown"}
+                          </span>
+                        </div>
+                      </td>
+                      <td style={{ padding: "14px 16px", fontSize: 13, color: "#374151" }}>
+                        {op.email}
+                      </td>
+                      <td style={{ padding: "14px 16px", fontSize: 13, color: "#16A34A", fontWeight: 600 }}>
+                        {op.stationId ? getStationName(op.stationId) : "None"}
+                      </td>
+                      <td style={{ padding: "14px 16px", fontSize: 13, color: "#16A34A", fontWeight: 600 }}>
+                        {op.stationId ? getStationName(op.stationId) : "None"}
+                      </td>
+                      {adminRole === "superadmin" && (
+                         <td style={{ padding: "14px 16px", fontSize: 13, color: "#374151", fontWeight: 700 }}>
+                            {tenants.find(t => t.id === op.tenantId)?.name || "—"}
+                         </td>
+                      )}
+                      <td style={{ padding: "14px 16px", display: "flex", gap: 12 }}>
+                        {adminRole !== "superadmin" && (
+                          <button
+                            onClick={() => { setEditingOperator(op); setShowModal(true); }}
+                            style={{
+                              background: "transparent", border: "none", cursor: "pointer",
+                              color: "#9CA3AF"
+                            }}
+                            title="Edit Operator"
+                          >
+                            <EditIcon fontSize="small" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleDelete(op)}
+                          style={{
+                            background: "transparent", border: "none", cursor: "pointer",
+                            color: "#EF4444"
+                          }}
+                          title="Delete Operator"
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
         </div>
+
       </div>
 
       {showModal && (
         <AddOperatorModal
           editingOperator={editingOperator}
+          availableStations={availableStations}
           onClose={() => setShowModal(false)}
           onSuccess={handleSaveSuccess}
           currentUser={currentUser}

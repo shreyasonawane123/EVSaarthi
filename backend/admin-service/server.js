@@ -37,6 +37,7 @@ app.get("/health", (req, res) => {
 
 // ── Admin routes ───────────────────────────────────────────────
 const adminRoutes = require("./routes/admin");
+
 app.use("/api/admin", adminRoutes);
 app.use("/", adminRoutes); // Keep base mount for direct access safety
 

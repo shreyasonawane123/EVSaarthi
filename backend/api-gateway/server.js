@@ -39,8 +39,8 @@ const VEHICLE_SERVICE_URL = process.env.VEHICLE_SERVICE_URL || "http://localhost
 const ADMIN_SERVICE_URL   = process.env.ADMIN_SERVICE_URL   || "http://localhost:5006";
 
 // ── Proxy helpers ─────────────────────────────────────────────
-const makeProxy = (target) =>
-  createProxyMiddleware({
+const makeProxy = (target, pathRewrite) => {
+  const options = {
     target,
     changeOrigin: true,
     on: {
@@ -52,16 +52,37 @@ const makeProxy = (target) =>
         });
       },
     },
-  });
+  };
+  if (pathRewrite) {
+    options.pathRewrite = pathRewrite;
+  }
+  return createProxyMiddleware(options);
+};
 
 // ── Route → Service mappings ───────────────────────────────────
 app.use("/api/auth", makeProxy(AUTH_SERVICE_URL));
 app.use("/api/user", makeProxy(USER_SERVICE_URL));
 app.use("/api/vehicle", makeProxy(VEHICLE_SERVICE_URL));
-app.use("/api/stations", makeProxy(STATION_SERVICE_URL));
 app.use("/api/booking", makeProxy(BOOKING_SERVICE_URL));
 app.use("/api/analytics", makeProxy(ANALYTICS_SERVICE_URL));
 app.use("/api/admin",     makeProxy(ADMIN_SERVICE_URL));
+
+// These services expect the FULL path starting with /api
+app.use("/api/stations", createProxyMiddleware({ 
+  target: STATION_SERVICE_URL, 
+  pathRewrite: (path, req) => req.originalUrl,
+  changeOrigin: true 
+}));
+
+app.use("/api/operators", createProxyMiddleware({ 
+  target: STATION_SERVICE_URL, 
+  pathRewrite: (path, req) => {
+    // req.originalUrl contains the full path including /api/operators
+    // We want to make sure the target receives exactly that.
+    return req.originalUrl.split("?")[0]; // Pass path only, middleware handles query
+  },
+  changeOrigin: true 
+}));
 
 // ── Gateway health check ────────────────────────────────────────
 app.get("/api/health", (req, res) => {
@@ -77,6 +98,7 @@ app.get("/api/health", (req, res) => {
       "/api/stations": STATION_SERVICE_URL,
       "/api/booking": BOOKING_SERVICE_URL,
       "/api/analytics": ANALYTICS_SERVICE_URL,
+      "/api/operators": STATION_SERVICE_URL,
       "/api/admin":     ADMIN_SERVICE_URL,
     },
   });

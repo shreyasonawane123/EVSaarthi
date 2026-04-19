@@ -14,8 +14,11 @@ import {
   Close as CloseIcon,
   CheckCircle as CheckCircleIcon,
   ErrorOutline as ErrorOutlineIcon,
+  Business as BusinessIcon,
 } from "@mui/icons-material";
 import CircularProgress from "@mui/material/CircularProgress";
+import { TextField, MenuItem } from "@mui/material";
+import axios from "axios";
 
 const API = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
@@ -105,9 +108,9 @@ const ConfirmDialog = ({ admin, onCancel, onConfirm, loading }) => (
 );
 
 // ─── Add Admin Modal ──────────────────────────────────────────────────────────
-// Receives currentUser so it can call getIdToken() asynchronously
-const AddAdminModal = ({ onClose, onSuccess, currentUser }) => {
+const AddAdminModal = ({ onClose, onSuccess, currentUser, tenants }) => {
   const [email, setEmail]     = useState("");
+  const [tenantId, setTenantId]= useState("none");
   const [error, setError]     = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -115,26 +118,29 @@ const AddAdminModal = ({ onClose, onSuccess, currentUser }) => {
     setError("");
     const trimmed = email.trim().toLowerCase();
     if (!trimmed) { setError("Please enter an email address."); return; }
+    if (tenants.length > 0 && tenantId === "none") {
+      setError("Please select a tenant organization."); return;
+    }
 
     setLoading(true);
     try {
       const token = await currentUser.getIdToken();
-      const res   = await fetch(`${API}/api/admin/team/add`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ email: trimmed }),
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        onSuccess(data.admin?.name || trimmed);
-      } else {
-        setError(data.error || "Something went wrong.");
+      const payload = { email: trimmed };
+      if (tenantId !== "none" && tenantId) {
+        payload.tenantId = tenantId;
       }
-    } catch {
-      setError("Network error. Is the admin service running?");
+
+      const res = await axios.post(`${API}/api/admin/team/add`, payload, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (res.data.success) {
+        onSuccess(res.data.admin?.name || trimmed);
+      } else {
+        setError(res.data.error || "Something went wrong.");
+      }
+    } catch (err) {
+      setError(err.response?.data?.error || "Network error. Is the admin service running?");
     } finally {
       setLoading(false);
     }
@@ -143,13 +149,12 @@ const AddAdminModal = ({ onClose, onSuccess, currentUser }) => {
   return (
     <div style={{
       position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)",
-      display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9000,
+      display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000,
     }}>
       <div style={{
         background: "#fff", borderRadius: 16, padding: "24px 20px",
         width: "95vw", maxWidth: 440, boxShadow: "0 20px 60px rgba(0,0,0,0.25)",
       }}>
-        {/* Title */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <PersonAddIcon style={{ color: "#EAB308", fontSize: 26 }} />
@@ -160,12 +165,10 @@ const AddAdminModal = ({ onClose, onSuccess, currentUser }) => {
           <CloseIcon onClick={onClose} style={{ cursor: "pointer", color: "#9CA3AF", fontSize: 22 }} />
         </div>
 
-        {/* Description */}
         <p style={{ margin: "0 0 20px", fontSize: 13, color: "#6B7280", lineHeight: 1.6 }}>
           The person must have logged in to EV Saarthi at least once before being added as admin.
         </p>
 
-        {/* Email input */}
         <div style={{ position: "relative", marginBottom: 16 }}>
           <EmailIcon style={{
             position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)",
@@ -182,15 +185,32 @@ const AddAdminModal = ({ onClose, onSuccess, currentUser }) => {
               border: `1.5px solid ${error ? "#FECACA" : "#E5E7EB"}`,
               borderRadius: 8, fontSize: 14, color: "#1A1A1A",
               outline: "none", boxSizing: "border-box",
-              fontFamily: "'Segoe UI', Arial, sans-serif",
             }}
-            onFocus={(e) => { e.target.style.borderColor = "#EAB308"; }}
-            onBlur={(e)  => { e.target.style.borderColor = error ? "#FECACA" : "#E5E7EB"; }}
             autoFocus
           />
         </div>
 
-        {/* Error */}
+        <div style={{ marginBottom: 20 }}>
+          <TextField
+            select
+            fullWidth
+            label="Assign to Tenant"
+            value={tenantId}
+            onChange={(e) => setTenantId(e.target.value)}
+            size="small"
+          >
+            <MenuItem value="none">
+              <em>-- Select Tenant --</em>
+            </MenuItem>
+            {tenants.map(t => (
+              <MenuItem key={t.id} value={t.id}>
+                <BusinessIcon style={{ fontSize: 18, color: '#9CA3AF', marginRight: 8 }} />
+                {t.name}
+              </MenuItem>
+            ))}
+          </TextField>
+        </div>
+
         {error && (
           <div style={{
             background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 8,
@@ -198,16 +218,10 @@ const AddAdminModal = ({ onClose, onSuccess, currentUser }) => {
             display: "flex", alignItems: "flex-start", gap: 8,
           }}>
             <ErrorOutlineIcon style={{ color: "#DC2626", fontSize: 18, marginTop: 1, flexShrink: 0 }} />
-            <span style={{ fontSize: 13, color: "#DC2626", lineHeight: 1.5 }}>
-              {error}
-              {error.toLowerCase().includes("not found") && (
-                <><strong>→ They should open the EV Saarthi login page and sign in with Google first.</strong></>
-              )}
-            </span>
+            <span style={{ fontSize: 13, color: "#DC2626", lineHeight: 1.5 }}>{error}</span>
           </div>
         )}
 
-        {/* Submit */}
         <button
           onClick={handleAdd}
           disabled={loading}
@@ -218,7 +232,6 @@ const AddAdminModal = ({ onClose, onSuccess, currentUser }) => {
             fontSize: 14, fontWeight: 700, color: "#1A1A1A",
             cursor: loading ? "not-allowed" : "pointer",
             display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-            transition: "background 0.2s",
           }}
         >
           {loading
@@ -248,13 +261,13 @@ const TeamPage = () => {
   const navigate = useNavigate();
 
   const [admins, setAdmins]               = useState([]);
+  const [tenants, setTenants]             = useState([]);
   const [fetching, setFetching]           = useState(true);
   const [showModal, setShowModal]         = useState(false);
   const [removeTarget, setRemoveTarget]   = useState(null);
   const [removeLoading, setRemoveLoading] = useState(false);
   const [toast, setToast]                 = useState(null);
 
-  // Access guard — only superadmin
   useEffect(() => {
     if (adminRole && adminRole !== "superadmin") {
       navigate("/admin", { replace: true });
@@ -270,13 +283,24 @@ const TeamPage = () => {
     setFetching(true);
     try {
       const token = await getToken();
-      const res   = await fetch(`${API}/api/admin/team`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (data.success) setAdmins(data.admins);
-      else setToast({ type: "error", msg: data.error || "Failed to load team." });
-    } catch {
+      
+      const [adminsRes, tenantsRes] = await Promise.all([
+        axios.get(`${API}/api/admin/team`, { headers: { Authorization: `Bearer ${token}` } }),
+        axios.get(`${API}/api/admin/tenants`, { headers: { Authorization: `Bearer ${token}` } })
+      ]);
+      
+      if (adminsRes.data.success) {
+        setAdmins(adminsRes.data.admins);
+      } else {
+        setToast({ type: "error", msg: adminsRes.data.error || "Failed to load team." });
+      }
+
+      if (tenantsRes.data.success) {
+        setTenants(tenantsRes.data.tenants);
+      }
+
+    } catch (err) {
+      console.error("Failed to fetch team data", err);
       setToast({ type: "error", msg: "Network error. Is admin-service running?" });
     } finally {
       setFetching(false);
@@ -296,16 +320,14 @@ const TeamPage = () => {
     setRemoveLoading(true);
     try {
       const token = await getToken();
-      const res   = await fetch(`${API}/api/admin/team/${removeTarget.uid}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+      const res = await axios.delete(`${API}/api/admin/team/${removeTarget.uid}`, {
+        headers: { Authorization: `Bearer ${token}` }
       });
-      const data = await res.json();
-      if (res.ok && data.success) {
+      if (res.data.success) {
         setToast({ type: "success", msg: `${removeTarget.name} removed as admin.` });
         fetchAdmins();
       } else {
-        setToast({ type: "error", msg: data.error || "Failed to remove admin." });
+        setToast({ type: "error", msg: res.data.error || "Failed to remove admin." });
       }
     } catch {
       setToast({ type: "error", msg: "Network error." });
@@ -323,8 +345,6 @@ const TeamPage = () => {
       padding: window.innerWidth < 1024 ? "16px" : "32px 24px", fontFamily: "'Segoe UI', Arial, sans-serif",
     }}>
       <div style={{ maxWidth: 900, margin: "0 auto" }}>
-
-        {/* ── Header ── */}
         <div style={{
           display: "flex", alignItems: "center",
           justifyContent: "space-between", marginBottom: 28,
@@ -353,18 +373,14 @@ const TeamPage = () => {
               padding: "11px 20px", background: "#EAB308", border: "none",
               borderRadius: 8, fontSize: 14, fontWeight: 700, color: "#1A1A1A",
               cursor: "pointer", boxShadow: "0 2px 8px rgba(234,179,8,0.3)",
-              transition: "background 0.2s",
               width: window.innerWidth < 1024 ? "100%" : "auto"
             }}
-            onMouseEnter={(e) => e.currentTarget.style.background = "#D97706"}
-            onMouseLeave={(e) => e.currentTarget.style.background = "#EAB308"}
           >
             <PersonAddIcon fontSize="small" />
             Add New Admin
           </button>
         </div>
 
-        {/* ── Table card ── */}
         <div style={{
           background: "#fff", borderRadius: 16,
           boxShadow: "0 2px 12px rgba(0,0,0,0.06)", overflow: "hidden",
@@ -375,21 +391,11 @@ const TeamPage = () => {
               <CircularProgress style={{ color: "#EAB308" }} size={28} />
               <span style={{ color: "#6B7280", fontSize: 14 }}>Loading team...</span>
             </div>
-          ) : admins.filter(a => a.role !== "superadmin").length === 0 ? (
-            <div style={{ padding: 64, textAlign: "center" }}>
-              <GroupIcon style={{ fontSize: 64, color: "#D1D5DB", marginBottom: 16 }} />
-              <p style={{ fontSize: 16, fontWeight: 700, color: "#374151", margin: "0 0 6px" }}>
-                No admins found
-              </p>
-              <p style={{ fontSize: 13, color: "#9CA3AF", margin: 0 }}>
-                Add teammates as admins using the button above.
-              </p>
-            </div>
           ) : (
             <table style={{ width: "100%", minWidth: "800px", borderCollapse: "collapse", whiteSpace: "nowrap" }}>
               <thead>
                 <tr style={{ background: "#F9FAFB", borderBottom: "2px solid #E5E7EB" }}>
-                  {["Member", "Email", "Role", "Added On", "Actions"].map((h) => (
+                  {["Member", "Email", "Tenant", "Role", "Added On", "Actions"].map((h) => (
                     <th key={h} style={{
                       padding: "12px 16px", textAlign: "left",
                       fontSize: 11, fontWeight: 700, color: "#6B7280",
@@ -401,19 +407,13 @@ const TeamPage = () => {
                 </tr>
               </thead>
               <tbody>
-                {admins
-                  .filter(a => a.role !== "superadmin")
-                  .map((a, i, filtered) => {
-                  // "You" detection: match by display name (best heuristic available in iframe context)
+                {admins.map((a, i) => {
                   const isYou = a.name === currentUser?.displayName;
                   return (
                     <tr
                       key={a.uid}
-                      style={{ borderBottom: i < filtered.length - 1 ? "1px solid #F3F4F6" : "none" }}
-                      onMouseEnter={(e) => e.currentTarget.style.background = "#FAFAFA"}
-                      onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                      style={{ borderBottom: i < admins.length - 1 ? "1px solid #F3F4F6" : "none" }}
                     >
-                      {/* Avatar + Name */}
                       <td style={{ padding: "14px 16px" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                           <AccountCircleIcon style={{ fontSize: 38, color: "#D1D5DB" }} />
@@ -433,50 +433,26 @@ const TeamPage = () => {
                           </div>
                         </div>
                       </td>
-
-                      {/* Email */}
-                      <td style={{ padding: "14px 16px" }}>
-                        <span style={{ fontSize: 13, color: "#374151" }}>{a.email}</span>
+                      <td style={{ padding: "14px 16px", fontSize: 13, color: "#374151" }}>{a.email}</td>
+                      <td style={{ padding: "14px 16px", fontSize: 13, fontWeight: 600, color: a.tenantId ? "#1A1A1A" : "#D1D5DB" }}>
+                        {a.tenantId ? (tenants.find(t => t.id === a.tenantId)?.name || "Unknown") : "—"}
                       </td>
-
-                      {/* Role */}
-                      <td style={{ padding: "14px 16px" }}>
-                        <RoleBadge role={a.role} />
-                      </td>
-
-                      {/* Added On */}
-                      <td style={{ padding: "14px 16px" }}>
-                        <span style={{ fontSize: 13, color: "#6B7280" }}>{fmtDate(a.createdAt)}</span>
-                      </td>
-
-                      {/* Actions */}
+                      <td style={{ padding: "14px 16px" }}><RoleBadge role={a.role} /></td>
+                      <td style={{ padding: "14px 16px", fontSize: 13, color: "#6B7280" }}>{fmtDate(a.createdAt)}</td>
                       <td style={{ padding: "14px 16px" }}>
                         {a.role === "admin" && !isYou ? (
                           <button
                             onClick={() => setRemoveTarget(a)}
-                            title={`Remove ${a.name}`}
                             style={{
-                              display: "flex", alignItems: "center", gap: 4,
                               padding: "7px 12px", border: "1.5px solid #FECACA",
                               borderRadius: 8, background: "#FEF2F2",
                               color: "#DC2626", fontSize: 12, fontWeight: 700,
-                              cursor: "pointer", transition: "all 0.15s",
-                            }}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.background = "#DC2626";
-                              e.currentTarget.style.color = "#fff";
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.background = "#FEF2F2";
-                              e.currentTarget.style.color = "#DC2626";
+                              cursor: "pointer",
                             }}
                           >
-                            <PersonRemoveIcon fontSize="small" />
-                            Remove
+                            <PersonRemoveIcon fontSize="small" /> Remove
                           </button>
-                        ) : (
-                          <span style={{ fontSize: 12, color: "#D1D5DB" }}>—</span>
-                        )}
+                        ) : "—"}
                       </td>
                     </tr>
                   );
@@ -486,25 +462,17 @@ const TeamPage = () => {
           )}
           </div>
         </div>
-
-        {/* Count */}
-        {!fetching && admins.filter(a => a.role !== "superadmin").length > 0 && (
-          <p style={{ fontSize: 12, color: "#9CA3AF", marginTop: 10, textAlign: "right" }}>
-            {admins.filter(a => a.role !== "superadmin").length} admin{admins.filter(a => a.role !== "superadmin").length !== 1 ? "s" : ""} total
-          </p>
-        )}
       </div>
 
-      {/* Add Admin Modal */}
       {showModal && (
         <AddAdminModal
           onClose={() => setShowModal(false)}
           onSuccess={handleAddSuccess}
           currentUser={currentUser}
+          tenants={tenants}
         />
       )}
 
-      {/* Confirm Remove Dialog */}
       {removeTarget && (
         <ConfirmDialog
           admin={removeTarget}
@@ -514,7 +482,6 @@ const TeamPage = () => {
         />
       )}
 
-      {/* Toast */}
       <Toast toast={toast} onClose={() => setToast(null)} />
     </div>
   );

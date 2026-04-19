@@ -99,7 +99,7 @@ const getPaymentBadgeColor = (method) => {
 };
 
 const StationsPage = () => {
-  const { currentUser } = useAuth();
+  const { currentUser, adminRole } = useAuth();
   const [stations, setStations] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -122,7 +122,7 @@ const StationsPage = () => {
   const [formData, setFormData] = useState({
     name: "", address: "", city: "", state: "", connectorTypes: [],
     totalSlots: 4, pricePerUnit: 18, paymentMethods: ["UPI"],
-    autoApproveReviews: false
+    autoApproveReviews: false, lat: "", lng: ""
   });
   const [editSlots, setEditSlots] = useState(0);
 
@@ -137,15 +137,6 @@ const StationsPage = () => {
   const [activeStep, setActiveStep] = useState(0);
   const [geocodingMissing, setGeocodingMissing] = useState(false);
   const [geocodeConfirmPending, setGeocodeConfirmPending] = useState(false);
-
-  // Map state
-  const [formLat, setFormLat] = useState(null);
-  const [formLng, setFormLng] = useState(null);
-  const [geocoding, setGeocoding] = useState(false);
-  const [geoError, setGeoError] = useState("");
-  const [mapInitialized, setMapInitialized] = useState(false);
-  const mapRef = useRef(null);
-  const markerRef = useRef(null);
 
   // Snackbar/Notification state
   const [snackbar, setSnackbar] = useState({ open: false, message: "", severity: "info" });
@@ -209,10 +200,30 @@ const StationsPage = () => {
 
   const handleAddSubmit = async (e) => {
     e.preventDefault();
-    if (!formLat || !formLng) {
-      showNotify("Please find location on map before saving", "warning");
+    
+    const lat = parseFloat(formData.lat);
+    const lng = parseFloat(formData.lng);
+    
+    if (isNaN(lat) || isNaN(lng)) {
+      showNotify("Please enter valid decimal coordinates for Latitude and Longitude", "warning");
       return;
     }
+
+    // 🛑 DUPLICATE CHECK
+    const lowerName = formData.name.trim().toLowerCase();
+    const duplicate = stations.find(st => {
+      if (st.name.trim().toLowerCase() === lowerName) {
+        const dist = getDistanceKm(lat, lng, st.lat, st.lng);
+        return dist <= 0.2;
+      }
+      return false;
+    });
+
+    if (duplicate) {
+      showNotify(`Duplicate Detected! This station is already available within 0.2km.`, "error");
+      return;
+    }
+
     try {
       const token = await currentUser.getIdToken();
       const stationData = {
@@ -220,12 +231,12 @@ const StationsPage = () => {
         address: formData.address,
         city: formData.city,
         state: formData.state,
-        lat: formLat,
-        lng: formLng,
+        lat: lat,
+        lng: lng,
         connectorTypes: formData.connectorTypes,
-        totalSlots: formData.totalSlots,
-        availableSlots: formData.totalSlots,
-        pricePerUnit: formData.pricePerUnit,
+        totalSlots: parseInt(formData.totalSlots),
+        availableSlots: parseInt(formData.totalSlots),
+        pricePerUnit: parseFloat(formData.pricePerUnit),
         paymentMethods: formData.paymentMethods,
         autoApproveReviews: formData.autoApproveReviews,
         status: 'open',
@@ -236,22 +247,27 @@ const StationsPage = () => {
         headers: { Authorization: `Bearer ${token}` }
       });
       setIsAddModalOpen(false);
-      setMapInitialized(false);
-      setFormLat(null);
-      setFormLng(null);
+      setFormData({ name: "", address: "", city: "", state: "", connectorTypes: [], totalSlots: 4, pricePerUnit: 18, paymentMethods: ["UPI"], autoApproveReviews: false, lat: "", lng: "" });
       fetchStations();
+      showNotify("Station added successfully!", "success");
     } catch (e) {
       console.error(e);
-      if (e.response && e.response.status === 400 && e.response.data && e.response.data.error) {
-        showNotify(`Validation Error: ${e.response.data.error}`, "error");
-      } else {
-        showNotify("Failed to add station", "error");
-      }
+      const msg = e.response?.data?.error || "Failed to add station";
+      showNotify(msg, "error");
     }
   };
 
   const handleEditSubmit = async (e) => {
     e.preventDefault();
+    
+    const lat = parseFloat(formData.lat);
+    const lng = parseFloat(formData.lng);
+
+    if (isNaN(lat) || isNaN(lng)) {
+      showNotify("Please enter valid decimal coordinates", "warning");
+      return;
+    }
+
     try {
       const token = await currentUser.getIdToken();
       
@@ -262,12 +278,12 @@ const StationsPage = () => {
         city: formData.city,
         state: formData.state,
         connectorTypes: formData.connectorTypes,
-        totalSlots: formData.totalSlots,
-        pricePerUnit: formData.pricePerUnit,
+        totalSlots: parseInt(formData.totalSlots),
+        pricePerUnit: parseFloat(formData.pricePerUnit),
         paymentMethods: formData.paymentMethods,
         autoApproveReviews: formData.autoApproveReviews,
-        lat: formLat || editingStation.lat,
-        lng: formLng || editingStation.lng
+        lat: lat,
+        lng: lng
       }, { headers: { Authorization: `Bearer ${token}` } });
 
       // Update slots if changed
@@ -296,88 +312,151 @@ const StationsPage = () => {
       const wb = XLSX.read(bstr, { type: "binary" });
       const wsname = wb.SheetNames[0];
       const ws = wb.Sheets[wsname];
-      const data = XLSX.utils.sheet_to_json(ws);
       
+      // Get raw data as array of arrays to be more flexible with headers
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+      if (rows.length === 0) {
+        showNotify("The file appears to be empty.", "error");
+        return;
+      }
+
+      // Detect if first row is headers or data
+      const firstRow = rows[0];
+      const hasHeaders = firstRow.some(cell => 
+        typeof cell === 'string' && 
+        ['name', 'station', 'address', 'city', 'state'].includes(cell.toLowerCase())
+      );
+
+      const headerMap = {
+        name: 0, address: 1, city: 2, state: 3, connectorTypes: 4, 
+        totalSlots: 5, pricePerUnit: 6, paymentMethods: 7, latitude: 8, longitude: 9
+      };
+
+      if (hasHeaders) {
+        // Map headers to indices
+        firstRow.forEach((cell, idx) => {
+          if (!cell) return;
+          const label = cell.toString().toLowerCase().trim();
+          if (label.includes('name') || label === 'station') headerMap.name = idx;
+          else if (label.includes('address')) headerMap.address = idx;
+          else if (label.includes('city')) headerMap.city = idx;
+          else if (label.includes('state')) headerMap.state = idx;
+          else if (label.includes('connector')) headerMap.connectorTypes = idx;
+          else if (label.includes('slot')) headerMap.totalSlots = idx;
+          else if (label.includes('price')) headerMap.pricePerUnit = idx;
+          else if (label.includes('payment')) headerMap.paymentMethods = idx;
+          else if (label.includes('lat')) headerMap.latitude = idx;
+          else if (label.includes('lng') || label.includes('long')) headerMap.longitude = idx;
+        });
+      }
+
+      const dataRows = hasHeaders ? rows.slice(1) : rows;
       const validRows = [];
       const skippedRows = [];
       const errors = [];
 
-      data.forEach((row, index) => {
-        const rowNum = index + 2; // +1 for header, +1 for 0-index
-        const stationName = row.name || 'Unknown Station';
+      dataRows.forEach((row, index) => {
+        const rowNum = hasHeaders ? index + 2 : index + 1;
         
-        // SPECIFIC VALIDATION
-        const missing = [];
-        if (!row.name) missing.push("Name");
-        if (!row.address) missing.push("Address");
-        if (!row.city) missing.push("City");
-        if (!row.state) missing.push("State");
+        // Defensive check: if row is missing, create a placeholder so we can show it in the table as "Empty Row"
+        const isActuallyEmpty = !row || (Array.isArray(row) && row.length === 0);
         
-        const lat = parseFloat(row.latitude);
-        const lng = parseFloat(row.longitude);
-        const isValidLat = !isNaN(lat) && lat >= -90 && lat <= 90;
-        const isValidLng = !isNaN(lng) && lng >= -180 && lng <= 180;
+        const nameFallback = row && row[headerMap.name] ? row[headerMap.name].toString().trim() : '';
+        const stationName = nameFallback || (isActuallyEmpty ? `[Empty Row ${rowNum}]` : `[Unnamed Row ${rowNum}]`);
         
-        if (isNaN(lat)) missing.push("Latitude (Missing)");
-        else if (!isValidLat) missing.push("Latitude (Invalid Range)");
-        
-        if (isNaN(lng)) missing.push("Longitude (Missing)");
-        else if (!isValidLng) missing.push("Longitude (Invalid Range)");
-
-        if (missing.length > 0) {
-          const errorMsg = `Row ${rowNum} (${stationName}): Missing or invalid ${missing.join(", ")}`;
-          skippedRows.push(errorMsg);
-          errors.push({ row: rowNum, name: stationName, missingFields: missing });
+        // Skip commented out rows
+        if (stationName.startsWith("//")) {
+          console.log(`Skipping commented row ${rowNum}: ${stationName}`);
           return;
         }
 
-        // 🛑 DUPLICATE CHECK
-        const lowerName = row.name.trim().toLowerCase();
-        let isDuplicate = false;
-        let duplicateOf = "";
+        console.log(`Processing row ${rowNum}:`, row);
 
-        stations.forEach(st => {
-          if (st.name.trim().toLowerCase() === lowerName) {
-            // Check distance
-            const dist = getDistanceKm(lat, lng, st.lat, st.lng);
-            if (dist <= 0.2) {
-              isDuplicate = true;
-              duplicateOf = st.name;
-            }
+        // VALIDATION
+        const validationErrors = [];
+        if (isActuallyEmpty) {
+          validationErrors.push("The entire row appears to be empty.");
+        } else {
+          if (!nameFallback) validationErrors.push("Station Name is missing.");
+          if (!row[headerMap.address]) validationErrors.push("Address is missing.");
+          if (!row[headerMap.city]) validationErrors.push("City is missing.");
+          if (!row[headerMap.state]) validationErrors.push("State is missing.");
+          
+          const lat = row ? parseFloat(row[headerMap.latitude]) : NaN;
+          const lng = row ? parseFloat(row[headerMap.longitude]) : NaN;
+          const isValidLat = !isNaN(lat) && lat >= -90 && lat <= 90;
+          const isValidLng = !isNaN(lng) && lng >= -180 && lng <= 180;
+          
+          if (isNaN(lat)) validationErrors.push("Latitude is missing or not a number.");
+          else if (!isValidLat) validationErrors.push("Latitude is out of valid range (-90 to 90).");
+          
+          if (isNaN(lng)) validationErrors.push("Longitude is missing or not a number.");
+          else if (!isValidLng) validationErrors.push("Longitude is out of valid range (-180 to 180).");
+
+          // 🛑 DUPLICATE CHECK
+          let isBatchDuplicate = false;
+          let duplicateOf = "";
+          if (nameFallback) {
+            const lowerName = nameFallback.toLowerCase();
+            stations.forEach(st => {
+              if (st.name.trim().toLowerCase() === lowerName) {
+                const dist = getDistanceKm(lat || 0, lng || 0, st.lat, st.lng);
+                if (dist <= 0.2) {
+                  isBatchDuplicate = true;
+                  duplicateOf = st.name;
+                }
+              }
+            });
           }
-        });
 
-        // Default values for optional fields
-        validRows.push({
-          id: Math.random().toString(36).substr(2, 9),
-          name: row.name,
-          address: row.address,
-          city: row.city,
-          state: row.state,
-          lat: lat,
-          lng: lng,
-          totalSlots: row.totalSlots ? parseInt(row.totalSlots) : 1,
-          pricePerUnit: row.pricePerUnit ? parseFloat(row.pricePerUnit) : 0,
-          connectorTypes: row.connectorTypes ? row.connectorTypes.split(",").map(c => c.trim()) : ["CCS2"],
-          paymentMethods: row.paymentMethods ? row.paymentMethods.split(",").map(p => p.trim()) : ["UPI"],
-          status: 'open',
-          isActive: true,
-          isDuplicate,
-          duplicateOf
-        });
+          const connectors = row[headerMap.connectorTypes];
+          const payments = row[headerMap.paymentMethods];
+
+          const stationObj = {
+            id: Math.random().toString(36).substr(2, 9),
+            name: stationName,
+            address: row[headerMap.address] ? row[headerMap.address].toString().trim() : "",
+            city: row[headerMap.city] ? row[headerMap.city].toString().trim() : "",
+            state: row[headerMap.state] ? row[headerMap.state].toString().trim() : "",
+            lat: lat || 0,
+            lng: lng || 0,
+            totalSlots: row[headerMap.totalSlots] ? parseInt(row[headerMap.totalSlots]) : 1,
+            pricePerUnit: row[headerMap.pricePerUnit] ? parseFloat(row[headerMap.pricePerUnit]) : 0,
+            connectorTypes: connectors ? connectors.toString().split(",").map(c => c.trim()) : ["CCS2"],
+            paymentMethods: payments ? payments.toString().split(",").map(p => p.trim()) : ["UPI"],
+            status: 'open',
+            isActive: true,
+            isDuplicate: isBatchDuplicate,
+            duplicateOf,
+            isValid: validationErrors.length === 0,
+            validationErrors
+          };
+
+          validRows.push(stationObj);
+          if (validationErrors.length > 0) {
+            skippedRows.push(`Row ${rowNum}: ${validationErrors.join(", ")}`);
+            errors.push({ row: rowNum, name: stationName, missingFields: validationErrors });
+          }
+        }
       });
 
       const dupeCount = validRows.filter(r => r.isDuplicate).length;
+      const validCount = validRows.filter(r => r.isValid && !r.isDuplicate).length;
+      const invalidCount = validRows.filter(r => !r.isValid).length;
 
       setExcelData(validRows);
       setParsingErrors(errors);
       setUploadSummary({
-        total: data.length,
-        valid: validRows.filter(r => !r.isDuplicate).length,
-        skipped: skippedRows.length,
+        total: dataRows.length,
+        valid: validCount,
+        skipped: invalidCount,
         duplicates: dupeCount,
         firstError: skippedRows[0] || null
       });
+      
+      if (!hasHeaders && validRows.length > 0) {
+        showNotify("No headers detected; mapping columns by standard order.", "info");
+      }
     };
     reader.readAsBinaryString(file);
   };
@@ -458,91 +537,7 @@ const StationsPage = () => {
     }));
   };
 
-  const handleFindOnMap = async () => {
-    if (!formData.address || !formData.city) {
-      setGeoError("Please enter address and city first");
-      return;
-    }
-    
-    if (!window.mappls) {
-      setGeoError("Map SDK not loaded. Please refresh.");
-      return;
-    }
 
-    setGeocoding(true);
-    setGeoError("");
-
-    const fullAddr = `${formData.address}, ${formData.city}, India`;
-
-    // Try getGeocode (from geocoding plugin) first
-    const geoMethod = window.mappls.getGeocode || window.mappls.search;
-    
-    if (!geoMethod) {
-      setGeoError("Geocoding library not ready. Try again in a moment.");
-      setGeocoding(false);
-      return;
-    }
-
-    geoMethod({ address: fullAddr, query: fullAddr }, (response) => {
-      setGeocoding(false);
-      
-      // Standardize different response formats
-      let result = null;
-      if (Array.isArray(response) && response.length > 0) {
-        result = response[0];
-      } else if (response && response.results && response.results.length > 0) {
-        result = response.results[0];
-      } else if (response && response.copResults && response.copResults.length > 0) {
-        result = response.copResults[0];
-      }
-
-      if (result && (result.lat || (result.geometry && result.geometry.location))) {
-        const lat = result.lat || result.geometry.location.lat;
-        const lng = result.lng || result.geometry.location.lng;
-        setFormLat(Number(lat));
-        setFormLng(Number(lng));
-        initAdminMap(Number(lat), Number(lng));
-      } else {
-        setGeoError("Location not found. Please check address.");
-      }
-    });
-  };
-
-  const initAdminMap = (lat, lng) => {
-    setTimeout(() => {
-      if (!window.mappls) return;
-      
-      // Cleanup previous map if exists
-      const container = document.getElementById('admin-station-map');
-      if (container) container.innerHTML = '';
-
-      const map = new window.mappls.Map('admin-station-map', {
-        center: [lng, lat],
-        zoom: 15,
-        search: false
-      });
-      
-      mapRef.current = map;
-
-      const marker = new window.mappls.Marker({
-        map: map,
-        position: { lat, lng },
-        draggable: true
-      });
-      
-      markerRef.current = marker;
-
-      marker.addListener('dragend', () => {
-        const pos = marker.getPosition();
-        setFormLat(pos.lat);
-        setFormLng(pos.lng);
-      });
-      
-      setMapInitialized(true);
-    }, 300);
-  };
-
-  // Legacy initMap removed
 
   const openEdit = (station) => {
     setEditingStation(station);
@@ -555,14 +550,12 @@ const StationsPage = () => {
       totalSlots: station.totalSlots,
       pricePerUnit: station.pricePerUnit,
       paymentMethods: station.paymentMethods || (station.upiSupported ? ["UPI"] : []),
-      autoApproveReviews: station.autoApproveReviews || false
+      autoApproveReviews: station.autoApproveReviews || false,
+      lat: station.lat?.toString() || "",
+      lng: station.lng?.toString() || ""
     });
     setEditSlots(station.availableSlots);
     setIsEditModalOpen(true);
-    setFormLat(station.lat);
-    setFormLng(station.lng);
-    setMapInitialized(true);
-    setTimeout(() => initAdminMap(station.lat || 20.5937, station.lng || 78.9629), 300);
   };
 
   const openSchedule = (station) => {
@@ -598,9 +591,12 @@ const StationsPage = () => {
           </span>
         </div>
         <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
-          {/* Fallback button: geocode stations that were uploaded with lat=0,lng=0 */}
-          {stations.some(st => !st.lat && !st.lng) && (
-            geocodeConfirmPending ? (
+          {/* Superadmin is read-only for stations per spec */}
+          {adminRole === "admin" && (
+            <>
+              {/* Fallback button: geocode stations that were uploaded with lat=0,lng=0 */}
+              {stations.some(st => !st.lat && !st.lng) && (
+                geocodeConfirmPending ? (
               <div className="flex items-center gap-2">
                 <span className="text-xs font-bold text-orange-600">Geocode {stations.filter(st => !st.lat && !st.lng).length} stations?</span>
                 <button
@@ -626,14 +622,11 @@ const StationsPage = () => {
           )}
           <button
             onClick={() => {
-              setFormData({ name: "", address: "", city: "", state: "", connectorTypes: [], totalSlots: 4, pricePerUnit: 18, paymentMethods: ["UPI"], autoApproveReviews: false });
+              setFormData({ name: "", address: "", city: "", state: "", connectorTypes: [], totalSlots: 4, pricePerUnit: 18, paymentMethods: ["UPI"], autoApproveReviews: false, lat: "", lng: "" });
               setIsAddModalOpen(true);
               setTabValue(0);
               setExcelData([]);
               setUploadSummary(null);
-              setMapInitialized(false);
-              setFormLat(null);
-              setFormLng(null);
             }}
             className="w-full sm:w-auto bg-[#EAB308] hover:bg-[#D97706] text-[#1A1A1A] px-5 py-3 sm:py-2.5 rounded-lg font-bold text-sm transition-all shadow-sm flex justify-center items-center gap-2"
           >
@@ -646,6 +639,8 @@ const StationsPage = () => {
             >
               Download Template
             </button>
+          )}
+            </>
           )}
         </div>
       </div>
@@ -665,7 +660,7 @@ const StationsPage = () => {
                 <th className="p-3 sm:p-4 font-bold text-center">Payments</th>
                 <th className="p-3 sm:p-4 font-bold text-center">Status</th>
                 <th className="p-3 sm:p-4 font-bold text-center">Active Map</th>
-                <th className="p-3 sm:p-4 font-bold text-right">Actions</th>
+                {adminRole !== "superadmin" && <th className="p-3 sm:p-4 font-bold text-right">Actions</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -726,15 +721,23 @@ const StationsPage = () => {
                       </span>
                   </td>
                   <td className="p-3 sm:p-4 text-center">
-                    <Switch size="small" checked={st.isActive} onChange={() => handleToggle(st.id, st.isActive)} color="warning" />
+                    <Switch size="small" checked={st.isActive} onChange={() => handleToggle(st.id, st.isActive)} color="warning" disabled={adminRole === "superadmin"} />
                   </td>
-                  <td className="p-3 sm:p-4 text-right sticky right-0 bg-white/95 backdrop-blur-sm z-10">
-                    <div className="flex justify-end items-center gap-0 sm:gap-1">
-                      <button onClick={() => openSchedule(st)} className="text-gray-400 hover:text-green-600 p-1" title="Schedule"><AccessTimeIcon sx={{ fontSize: { xs: 16, sm: 20 } }} /></button>
-                      <button onClick={() => openEdit(st)} className="text-gray-400 hover:text-blue-600 p-1" title="Edit"><EditIcon sx={{ fontSize: { xs: 16, sm: 20 } }} /></button>
-                      <button onClick={() => handleDelete(st.id, st.name)} className="text-gray-400 hover:text-red-600 p-1" title="Delete"><DeleteIcon sx={{ fontSize: { xs: 16, sm: 20 } }} /></button>
-                    </div>
-                  </td>
+                  {adminRole !== "superadmin" && (
+                    <td className="p-3 sm:p-4 text-right sticky right-0 bg-white/95 backdrop-blur-sm z-10">
+                      <div className="flex justify-end items-center gap-0 sm:gap-1">
+                        {adminRole === "operator" && (
+                          <button onClick={() => openSchedule(st)} className="text-gray-400 hover:text-green-600 p-1" title="Schedule"><AccessTimeIcon sx={{ fontSize: { xs: 16, sm: 20 } }} /></button>
+                        )}
+                        {adminRole === "admin" && (
+                          <>
+                            <button onClick={() => openEdit(st)} className="text-gray-400 hover:text-blue-600 p-1" title="Edit"><EditIcon sx={{ fontSize: { xs: 16, sm: 20 } }} /></button>
+                            <button onClick={() => handleDelete(st.id, st.name)} className="text-gray-400 hover:text-red-600 p-1" title="Delete"><DeleteIcon sx={{ fontSize: { xs: 16, sm: 20 } }} /></button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -791,7 +794,7 @@ const StationsPage = () => {
                 </div>
 
                 <TextField required type="number" label="Price per kWh (₹)" size="small" value={formData.pricePerUnit} onChange={e => setFormData({...formData, pricePerUnit: e.target.value})} fullWidth />
-                
+
                 <FormControl size="small" fullWidth required>
                   <InputLabel>Payment Methods</InputLabel>
                   <Select
@@ -801,9 +804,7 @@ const StationsPage = () => {
                     label="Payment Methods"
                     renderValue={(selected) => (
                       <div className="flex flex-wrap gap-1">
-                        {selected.map((value) => (
-                          <Chip key={value} label={value} size="small" />
-                        ))}
+                        {selected.map((value) => <Chip key={value} label={value} size="small" />)}
                       </div>
                     )}
                   >
@@ -815,6 +816,32 @@ const StationsPage = () => {
                     ))}
                   </Select>
                 </FormControl>
+
+                {/* Manual Lat/Lng Fields */}
+                <div className="md:col-span-2 grid grid-cols-2 gap-4">
+                  <TextField 
+                    required 
+                    label="Latitude" 
+                    size="small" 
+                    type="number" 
+                    inputProps={{ step: "any" }} 
+                    placeholder="e.g. 18.5204"
+                    value={formData.lat} 
+                    onChange={e => setFormData({...formData, lat: e.target.value})} 
+                    fullWidth 
+                  />
+                  <TextField 
+                    required 
+                    label="Longitude" 
+                    size="small" 
+                    type="number" 
+                    inputProps={{ step: "any" }} 
+                    placeholder="e.g. 73.8567"
+                    value={formData.lng} 
+                    onChange={e => setFormData({...formData, lng: e.target.value})} 
+                    fullWidth 
+                  />
+                </div>
               </div>
 
               {/* Auto Approve Reviews Toggle */}
@@ -833,81 +860,20 @@ const StationsPage = () => {
                 </div>
               </div>
 
-              {/* Find on Map Button (Only for Add) */}
-              {isAddModalOpen && (
-                <div className="space-y-2">
-                  <button
-                    type="button"
-                    onClick={handleFindOnMap}
-                    disabled={geocoding}
-                    style={{
-                      background: '#16A34A',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '8px',
-                      padding: '10px 20px',
-                      fontSize: '14px',
-                      fontWeight: '700',
-                      cursor: 'pointer',
-                      width: '100%',
-                      marginTop: '8px'
-                    }}>
-                    {geocoding ? 'Finding location...' : 'Find on Map'}
-                  </button>
-                  {geoError && (
-                    <p style={{ color: '#DC2626', fontSize: '12px', marginTop: '4px' }}>
-                      {geoError}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {/* Mappls Map Container */}
-              <div className="mt-4">
-                {!mapInitialized && isAddModalOpen ? (
-                  <div style={{
-                    width: '100%',
-                    height: '250px',
-                    background: '#F9FAFB',
-                    border: '2px dashed #E5E7EB',
-                    borderRadius: '8px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: '#888',
-                    fontSize: '13px',
-                    fontWeight: '600'
-                  }}>
-                    Enter address and city then click "Find on Map"
-                  </div>
-                ) : (
-                  <div>
-                    <div
-                      id="admin-station-map"
-                      style={{
-                        width: '100%',
-                        height: '250px',
-                        borderRadius: '8px',
-                        border: '1px solid #E5E7EB'
-                      }}
-                    />
-                    <p style={{ fontSize: '11px', color: '#888', marginTop: '4px' }}>
-                      Drag marker to adjust exact location
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {formLat && formLng && isAddModalOpen && (
-                <p style={{ fontSize: '11px', color: '#16A34A', fontWeight: '600', marginTop: '4px' }}>
-                  Location captured: {formLat.toFixed(4)}, {formLng.toFixed(4)} ✓
-                </p>
-              )}
-
               <div className="flex justify-end gap-3 pt-6 border-t font-medium">
-                <button type="button" onClick={() => { setIsAddModalOpen(false); setIsEditModalOpen(false); }} className="px-5 py-2 rounded-lg border hover:bg-gray-50">Cancel</button>
-                <button type="submit" className="px-5 py-2 rounded-lg bg-[#EAB308] hover:bg-[#D97706] text-[#1A1A1A] font-bold shadow-sm">
-                  {isAddModalOpen ? 'Add Station' : 'Save Changes'}
+                <button 
+                  type="button" 
+                  onClick={() => { setIsAddModalOpen(false); setIsEditModalOpen(false); }} 
+                  className="px-5 py-2 rounded-lg border hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  disabled={loading}
+                  className="px-5 py-2 rounded-lg bg-[#EAB308] hover:bg-[#D97706] disabled:opacity-60 text-[#1A1A1A] font-bold shadow-sm transition-all"
+                >
+                  {loading ? (isAddModalOpen ? 'Adding...' : 'Saving...') : (isAddModalOpen ? 'Add Station' : 'Save Changes')}
                 </button>
               </div>
             </form>

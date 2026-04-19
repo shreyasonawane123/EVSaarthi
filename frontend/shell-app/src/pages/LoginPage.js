@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { signInWithPopup } from "firebase/auth";
-import { auth, googleProvider } from "../firebase/config";
+import { signInWithPopup, signInWithEmailAndPassword } from "firebase/auth";
+import { auth, googleProvider, db } from "../firebase/config";
+import { doc, getDoc } from "firebase/firestore";
 import { useAuth } from "../context/AuthContext";
 import axios from "axios";
 import {
@@ -17,10 +18,47 @@ import {
 const API = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
 const LoginPage = () => {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const { isLoggedIn } = useAuth();
   const navigate = useNavigate();
+
+  const handleRedirect = async (user) => {
+    try {
+      const idToken = await user.getIdToken();
+      // Check if user is an admin or operator
+      let adminDoc = await getDoc(doc(db, "adminUsers", user.uid));
+      let role = "admin";
+      let name = "";
+      
+      if (adminDoc.exists()) {
+        const data = adminDoc.data();
+        role = data.role || "admin";
+        name = data.name || user.displayName || "Staff";
+      } else {
+        // Not in adminUsers, check operators collection
+        const operatorDoc = await getDoc(doc(db, "operators", user.uid));
+        if (operatorDoc.exists()) {
+          const oData = operatorDoc.data();
+          role = "operator";
+          name = oData.name || user.displayName || "Operator";
+        } else {
+          // Standard consumer
+          navigate("/dashboard");
+          return;
+        }
+      }
+
+      // If we found a staff role, redirect to admin portal
+      const nameParam = encodeURIComponent(name);
+      window.location.href = `/admin?token=${idToken}&name=${nameParam}&role=${role}`;
+    } catch (err) {
+      console.error("Redirection error:", err);
+      navigate("/dashboard");
+    }
+  };
 
   useEffect(() => {
     if (isLoggedIn) navigate("/dashboard");
@@ -31,24 +69,29 @@ const LoginPage = () => {
     setError("");
     try {
       const result = await signInWithPopup(auth, googleProvider);
-      const idToken = await result.user.getIdToken();
-
-      await axios.post(`${API}/api/auth/session`, { idToken });
-
-      await axios.post(
-        `${API}/api/user/profile`,
-        {
-          name: result.user.displayName,
-          email: result.user.email,
-          photoURL: result.user.photoURL,
-        },
-        { headers: { Authorization: `Bearer ${idToken}` } }
-      );
-
-      navigate("/dashboard");
+      await handleRedirect(result.user);
     } catch (err) {
-      console.error("Login error:", err);
-      setError("Login failed. Please try again.");
+      console.error("Google Login error:", err);
+      setError("Google login failed. Please try again.");
+      setLoading(false);
+    }
+  };
+
+  const handleEmailLogin = async (e) => {
+    e.preventDefault();
+    if (!email || !password) {
+      setError("Please enter both email and password.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    try {
+      const result = await signInWithEmailAndPassword(auth, email, password);
+      await handleRedirect(result.user);
+    } catch (err) {
+      console.error("Email Login error:", err.message);
+      setError("Invalid email or password. Please try again.");
       setLoading(false);
     }
   };
@@ -203,27 +246,63 @@ const LoginPage = () => {
 
           {/* Card Body */}
           <div className="p-10 text-center">
-            <h2 className="text-2xl font-extrabold text-[#1A1A1A] mb-1">
-              Sign In to Your Account
-            </h2>
-            <p className="text-sm text-gray-500 mb-8 font-medium">
-              Access your EV dashboard
-            </p>
+            <h2 className="text-2xl font-extrabold text-[#1A1A1A] mb-1">Sign In to Dashboard</h2>
+            <p className="text-sm text-gray-500 mb-8 font-medium">Access your EV portal</p>
 
             {error && (
-              <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm mb-4 border border-red-100">
+              <div className="bg-red-50 text-red-600 p-3 rounded-xl text-xs mb-4 border border-red-100 font-bold animate-shake text-left">
                 {error}
               </div>
             )}
+
+            {/* Email/Pass Form */}
+            <form onSubmit={handleEmailLogin} className="space-y-4 mb-6">
+              <div className="text-left">
+                <label className="text-xs font-bold text-gray-500 ml-1 uppercase tracking-wider">Email address</label>
+                <input 
+                  type="email" 
+                  value={email} 
+                  onChange={e => setEmail(e.target.value)}
+                  className="w-full mt-1.5 p-3.5 rounded-xl border border-gray-100 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-[#16A34A] focus:border-transparent outline-none transition-all text-sm font-medium"
+                  placeholder="operator@greencharge.com" 
+                />
+              </div>
+              <div className="text-left">
+                <label className="text-xs font-bold text-gray-500 ml-1 uppercase tracking-wider">Password</label>
+                <input 
+                  type="password" 
+                  value={password} 
+                  onChange={e => setPassword(e.target.value)}
+                  className="w-full mt-1.5 p-3.5 rounded-xl border border-gray-100 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-[#16A34A] focus:border-transparent outline-none transition-all text-sm font-medium"
+                  placeholder="At least 6 characters" 
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-4 bg-[#16A34A] hover:bg-[#15803D] text-white font-extrabold rounded-xl transition-all shadow-lg shadow-green-100 disabled:opacity-70 disabled:cursor-not-allowed"
+              >
+                {loading ? "Verifying..." : "Sign In to Dashboard"}
+              </button>
+            </form>
+
+            {/* Divider */}
+            <div className="flex items-center gap-3 mb-6">
+              <div className="flex-1 h-px bg-gray-100" />
+              <span className="text-[10px] text-[#9CA3AF] uppercase tracking-widest font-black">
+                or sign in with
+              </span>
+              <div className="flex-1 h-px bg-gray-100" />
+            </div>
 
             {/* Google Button */}
             <button
               onClick={handleGoogleLogin}
               disabled={loading}
-              className="w-full relative py-3.5 bg-[#EAB308] hover:bg-[#D97706] text-[#1A1A1A] font-bold rounded-xl transition-all duration-300 shadow-[0_4px_14px_rgba(234,179,8,0.3)] flex items-center justify-center gap-3 disabled:opacity-70 disabled:cursor-not-allowed"
+              className="w-full relative py-3.5 bg-white hover:bg-gray-50 text-[#1A1A1A] font-bold rounded-xl transition-all duration-300 border border-gray-200 flex items-center justify-center gap-3 disabled:opacity-70 disabled:cursor-not-allowed shadow-sm"
             >
               <GoogleIcon />
-              {loading ? "Signing you in..." : "Continue with Google"}
+              {loading ? "Please wait..." : "Continue with Google"}
             </button>
 
             {/* Divider */}

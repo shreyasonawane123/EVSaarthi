@@ -10,6 +10,7 @@ import {
   Logout as LogoutIcon,
   Menu as MenuIcon,
   RateReview as RateReviewIcon,
+  Business as BusinessIcon,
 } from '@mui/icons-material';
 
 const AdminNavbar = () => {
@@ -26,13 +27,17 @@ const AdminNavbar = () => {
   const NAV_LINKS = [
     { path: "/", label: "Overview", icon: <DashboardIcon fontSize="small" />, exact: true },
     { path: "/stations", label: "Stations", icon: <EvStationIcon fontSize="small" />, exact: false },
-    { path: "/users", label: "Users", icon: <PeopleIcon fontSize="small" />, exact: false },
-    { path: "/reviews", label: "Reviews", icon: <RateReviewIcon fontSize="small" />, exact: false },
-    { path: "/operators", label: "Operators", icon: <GroupIcon fontSize="small" />, exact: false },
-    { path: "/team", label: "Team", icon: <GroupIcon fontSize="small" />, exact: false, role: "superadmin" },
+    { path: "/users", label: "Users", icon: <PeopleIcon fontSize="small" />, exact: false, roles: ["admin", "superadmin"] },
+    { path: "/reviews", label: "Reviews", icon: <RateReviewIcon fontSize="small" />, exact: false, roles: ["admin", "superadmin"] },
+    { path: "/operators", label: "Operators", icon: <GroupIcon fontSize="small" />, exact: false, roles: ["admin", "superadmin"] },
+    { path: "/tenants", label: "Tenants", icon: <BusinessIcon fontSize="small" />, exact: false, roles: ["superadmin"] },
+    { path: "/team", label: "Team", icon: <GroupIcon fontSize="small" />, exact: false, roles: ["superadmin"] },
   ];
 
-  const navLinks = NAV_LINKS.filter(link => !link.role || link.role === adminRole);
+  const navLinks = NAV_LINKS.filter(link => {
+    if (!link.roles) return true;
+    return link.roles.includes(adminRole);
+  });
 
   const isActive = (path, exact) => {
     if (exact) return location.pathname === path || location.pathname === '/';
@@ -82,14 +87,15 @@ const AdminNavbar = () => {
             {/* Role badge */}
             {adminRole && (
               <span className="hidden sm:inline-block" style={{
-                background: adminRole === 'superadmin' ? '#F5F3FF' : '#F0FDF4',
-                color:      adminRole === 'superadmin' ? '#7C3AED'  : '#16A34A',
+                background: adminRole === 'superadmin' ? '#F5F3FF' : (adminRole === 'admin' ? '#F0FDF4' : '#FFFBEB'),
+                color:      adminRole === 'superadmin' ? '#7C3AED'  : (adminRole === 'admin' ? '#16A34A' : '#D97706'),
                 fontSize: '11px',
                 fontWeight: '700',
                 padding: '2px 10px',
                 borderRadius: '20px',
+                border: `1px solid ${adminRole === 'superadmin' ? '#DDD6FE' : (adminRole === 'admin' ? '#BBF7D0' : '#FEF3C7')}`
               }}>
-                {adminRole === 'superadmin' ? 'Superadmin' : 'Admin'}
+                {adminRole === 'superadmin' ? 'Superadmin' : (adminRole === 'admin' ? 'Admin' : 'Operator')}
               </span>
             )}
             <span className="hidden sm:block text-[13px] font-semibold text-white">

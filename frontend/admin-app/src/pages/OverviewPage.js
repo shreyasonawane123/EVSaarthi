@@ -13,7 +13,7 @@ import {
 const API_GATEWAY = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
 const OverviewPage = () => {
-  const { currentUser } = useAuth();
+  const { currentUser, adminRole } = useAuth();
   const navigate = useNavigate();
   const [stats, setStats] = useState({
     totalUsers: 0,
@@ -66,8 +66,18 @@ const OverviewPage = () => {
 
   return (
     <div className="p-4 lg:p-10 max-w-7xl mx-auto space-y-8 animate-fade-in">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-black text-[#1A1A1A]">Admin Overview</h1>
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-black text-[#1A1A1A]">Admin Overview</h1>
+          {adminRole !== "superadmin" && currentUser?.tenantName && (
+            <div className="flex items-center gap-1.5 mt-1">
+              <span className="bg-[#F0FDF4] text-[#16A34A] text-[10px] font-black uppercase px-2 py-0.5 rounded border border-[#BBF7D0]">
+                {currentUser.tenantName}
+              </span>
+              <span className="text-xs text-gray-400 font-medium">Tenant Dashboard</span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* STAT CARDS */}
@@ -79,7 +89,9 @@ const OverviewPage = () => {
             </div>
             <div>
               <div className="text-sm font-bold text-gray-500">{card.label}</div>
-              <div className="text-3xl font-black text-[#1A1A1A]">{card.value}</div>
+              <div className="text-3xl font-black text-[#1A1A1A]">
+                {typeof card.value === 'number' ? card.value.toLocaleString() : card.value}
+              </div>
             </div>
           </div>
         ))}

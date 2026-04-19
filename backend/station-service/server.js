@@ -23,10 +23,8 @@ app.use(express.json());
 const stationsRoutes = require("./routes/stations");
 const operatorsRoutes = require("./routes/operators");
 
-app.use("/operators", operatorsRoutes);
+app.use("/api/operators", operatorsRoutes);
 app.use("/api/stations", stationsRoutes);
-app.use("/", stationsRoutes); // Keep / for fallback safety
-
 // 404
 app.use((req, res) => {
   console.log(`[404] ${req.method} ${req.url}`);

@@ -9,6 +9,14 @@ const { db, admin } = require("../config/firebase");
 const verifyToken = require("../middleware/verifyToken");
 const verifyAdmin = require("../middleware/verifyAdmin");
 
+// Require superadmin for all tenant creations/deletions
+const requireSuperadmin = (req, res, next) => {
+  if (req.adminRole !== "superadmin") {
+    return res.status(403).json({ error: "Access denied. Action strictly requires superadmin privileges." });
+  }
+  next();
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // UTILS
 // ─────────────────────────────────────────────────────────────────────────────
@@ -159,21 +167,34 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 // ─────────────────────────────────────────────────────────────────────────────
 
 // GET /api/admin/stations
-// Returns ALL stations (including inactive) — no auth required (read-only)
-router.get("/stations", async (req, res) => {
+// Returns ALL stations scoped by tenantId for admins, or all stations for superadmin
+router.get("/stations", verifyToken, verifyAdmin, async (req, res) => {
   try {
-    const snapshot = await db
-      .collection("stations")
-      .orderBy("createdAt", "desc")
-      .get();
+    let snapshot;
+    
+    if (req.adminRole === "superadmin") {
+      snapshot = await db.collection("stations").get();
+    } else {
+      if (!req.tenantId) {
+        return res.json({ success: true, stations: [] });
+      }
+      snapshot = await db.collection("stations").where("tenantId", "==", req.tenantId).get();
+    }
 
-    const stations = snapshot.docs.map((doc) => ({
+    let stations = snapshot.docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
       // Convert Firestore timestamps to ISO strings for JSON
       createdAt: doc.data().createdAt?.toDate?.().toISOString() || null,
       updatedAt: doc.data().updatedAt?.toDate?.().toISOString() || null,
     }));
+    
+    // Sort in memory to avoid requiring a composite index alongside where
+    stations.sort((a, b) => {
+      const ta = a.createdAt || "";
+      const tb = b.createdAt || "";
+      return tb.localeCompare(ta);
+    });
 
     res.json({ success: true, stations });
   } catch (error) {
@@ -273,6 +294,7 @@ router.post("/stations/add", verifyToken, verifyAdmin, async (req, res) => {
       isActive: true,
       lat,
       lng,
+      tenantId: req.tenantId || null,
       addedBy: req.uid,
       lastUpdatedBy: req.uid,
       createdAt: now,
@@ -536,6 +558,7 @@ router.post("/stations/bulk-add", verifyToken, verifyAdmin, async (req, res) => 
           isActive: true,
           lat,
           lng,
+          tenantId: req.tenantId || null,
           addedBy: req.uid,
           lastUpdatedBy: req.uid,
           createdAt: now,
@@ -567,8 +590,11 @@ router.post("/stations/bulk-add", verifyToken, verifyAdmin, async (req, res) => 
 // ─────────────────────────────────────────────────────────────────────────────
 
 // GET /api/admin/users
-// Returns all users from users/ collection
+// Returns all users from users/ collection - Superadmin only
 router.get("/users", verifyToken, verifyAdmin, async (req, res) => {
+  if (req.adminRole !== "superadmin") {
+    return res.status(403).json({ error: "Access denied. Platform users list is restricted to Superadmin." });
+  }
   try {
     const snapshot = await db.collection("users").get();
     const users = snapshot.docs.map((doc) => ({
@@ -586,31 +612,162 @@ router.get("/users", verifyToken, verifyAdmin, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// TENANT ROUTES
+// ─────────────────────────────────────────────────────────────────────────────
+
+// GET /tenants
+// Returns all tenants (Superadmin sees all, Admin sees only their own)
+router.get("/tenants", verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    let snapshot;
+    if (req.adminRole === "superadmin") {
+        snapshot = await db.collection("tenants").get();
+    } else {
+        if (!req.tenantId) {
+            return res.json({ success: true, tenants: [] });
+        }
+        const doc = await db.collection("tenants").doc(req.tenantId).get();
+        if (doc.exists) {
+            return res.json({ success: true, tenants: [{ id: doc.id, ...doc.data() }] });
+        }
+        return res.json({ success: true, tenants: [] });
+    }
+
+    const tenants = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      createdAt: doc.data().createdAt?.toDate?.().toISOString() || null
+    }));
+
+    res.json({ success: true, tenants });
+  } catch (error) {
+    console.error("[admin-service] Fetch tenants error:", error);
+    res.status(500).json({ error: "Failed to fetch tenants" });
+  }
+});
+
+// POST /tenants
+router.post("/tenants", verifyToken, verifyAdmin, requireSuperadmin, async (req, res) => {
+  const { name, contactEmail, contactPerson } = req.body;
+  if (!name) return res.status(400).json({ error: "Tenant name is required" });
+
+  try {
+    const tenantData = {
+      name,
+      contactEmail: contactEmail || "",
+      contactPerson: contactPerson || "",
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+    
+    const docRef = await db.collection("tenants").add(tenantData);
+    res.json({ success: true, tenant: { id: docRef.id, ...tenantData } });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to create tenant" });
+  }
+});
+
+// PUT /tenants/:id
+router.put("/tenants/:id", verifyToken, verifyAdmin, requireSuperadmin, async (req, res) => {
+  const { name, contactEmail, contactPerson } = req.body;
+  try {
+    const updateData = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
+    if (name !== undefined) updateData.name = name;
+    if (contactEmail !== undefined) updateData.contactEmail = contactEmail;
+    if (contactPerson !== undefined) updateData.contactPerson = contactPerson;
+
+    await db.collection("tenants").doc(req.params.id).update(updateData);
+    res.json({ success: true, message: "Tenant updated" });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to update tenant" });
+  }
+});
+
+// GET /api/admin/me
+// Returns current admin's profile data (role, tenantId)
+router.get("/me", verifyToken, async (req, res) => {
+  try {
+    let adminDoc = await db.collection("adminUsers").doc(req.uid).get();
+    let data;
+
+    if (adminDoc.exists) {
+      data = adminDoc.data();
+    } else {
+      // Check operators collection
+      const operatorDoc = await db.collection("operators").doc(req.uid).get();
+      if (operatorDoc.exists) {
+        data = operatorDoc.data();
+      } else {
+        return res.status(404).json({ success: false, error: "Profile not found" });
+      }
+    }
+    
+    let tenantName = null;
+    if (data.tenantId) {
+        const tenantDoc = await db.collection("tenants").doc(data.tenantId).get();
+        if (tenantDoc.exists) {
+            tenantName = tenantDoc.data().name;
+        }
+    }
+
+    res.json({ 
+        success: true, 
+        admin: { 
+            uid: req.uid, 
+            ...data,
+            tenantName
+        } 
+    });
+  } catch (error) {
+    console.error("[admin-service] Get me error:", error.message);
+    res.status(500).json({ error: "Failed to fetch profile" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // STATS ROUTE
 // ─────────────────────────────────────────────────────────────────────────────
 
 // GET /api/admin/stats
-// Returns dashboard-level counts
+// Returns dashboard-level counts, scoped by tenant for regular admins
 router.get("/stats", verifyToken, verifyAdmin, async (req, res) => {
   try {
-    const [usersSnap, stationsSnap, vehiclesSnap] = await Promise.all([
-      db.collection("users").get(),
-      db.collection("stations").get(),
-      db.collection("vehicles").get(),
-    ]);
+    let usersSnap, stationsSnap, vehiclesSnap;
+    
+    if (req.adminRole === "superadmin") {
+      [usersSnap, stationsSnap, vehiclesSnap] = await Promise.all([
+        db.collection("users").get(),
+        db.collection("stations").get(),
+        db.collection("vehicles").get(),
+      ]);
+    } else {
+      // For Tenant Admins
+      if (!req.tenantId) {
+          return res.json({ success: true, stats: { totalUsers: 0, totalStations: 0, activeStations: 0, totalVehicles: 0 } });
+      }
+      // Note: Users and Vehicles are global Platform-level metrics. 
+      // Tenant Admins only see stats for their own stations.
+      [stationsSnap] = await Promise.all([
+        db.collection("stations").where("tenantId", "==", req.tenantId).get(),
+      ]);
+    }
 
     let activeStations = 0;
-    stationsSnap.docs.forEach((doc) => {
-      if (doc.data().isActive === true) activeStations++;
-    });
+    let totalStations = stationsSnap ? stationsSnap.size : 0;
+
+    if (stationsSnap) {
+        stationsSnap.docs.forEach((doc) => {
+          if (doc.data().isActive === true) activeStations++;
+        });
+    }
 
     res.json({
       success: true,
       stats: {
-        totalUsers: usersSnap.size,
-        totalStations: stationsSnap.size,
+        totalUsers: usersSnap ? usersSnap.size : "—", // Hide global user count from tenant admins
+        totalStations: totalStations,
         activeStations,
-        totalVehicles: vehiclesSnap.size,
+        totalVehicles: vehiclesSnap ? vehiclesSnap.size : "—",
       },
     });
   } catch (error) {
@@ -687,6 +844,7 @@ router.post("/team/add", verifyToken, verifyAdmin, async (req, res) => {
       email: userData.email,
       name: userData.name || "Unknown",
       role: "admin",
+      tenantId: req.body.tenantId || null,
       addedBy: req.uid,
       createdAt: now,
     };

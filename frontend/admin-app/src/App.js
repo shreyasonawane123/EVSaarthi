@@ -10,6 +10,7 @@ import UsersPage from "./pages/UsersPage";
 import TeamPage from "./pages/TeamPage";
 import ReviewsPage from "./pages/ReviewsPage";
 import OperatorsPage from "./pages/OperatorsPage";
+import TenantsPage from "./pages/TenantsPage";
 
 function App() {
   return (
@@ -24,6 +25,7 @@ function App() {
               <Route path="/stations" element={<AdminProtectedRoute><StationsPage /></AdminProtectedRoute>} />
               <Route path="/users" element={<AdminProtectedRoute><UsersPage /></AdminProtectedRoute>} />
               <Route path="/team" element={<AdminProtectedRoute><TeamPage /></AdminProtectedRoute>} />
+              <Route path="/tenants" element={<AdminProtectedRoute><TenantsPage /></AdminProtectedRoute>} />
               <Route path="/operators" element={<AdminProtectedRoute><OperatorsPage /></AdminProtectedRoute>} />
               <Route path="/reviews" element={<AdminProtectedRoute><ReviewsPage /></AdminProtectedRoute>} />
 

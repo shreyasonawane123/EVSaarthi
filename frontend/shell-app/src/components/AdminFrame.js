@@ -27,18 +27,32 @@ const AdminFrame = () => {
       }
 
       try {
-        const adminDoc = await getDoc(
+        let adminDoc = await getDoc(
           doc(db, "adminUsers", currentUser.uid)
         );
-        console.log("[AdminFrame] Admin doc exists?", adminDoc.exists());
-
-        setIsAdmin(adminDoc.exists());
+        console.log("[AdminFrame] Found in adminUsers?", adminDoc.exists());
 
         if (adminDoc.exists()) {
-          const idToken = await currentUser.getIdToken(true); // force refresh token
+          setIsAdmin(true);
+          const idToken = await currentUser.getIdToken(true);
           setToken(idToken);
           const role = adminDoc.data()?.role || "admin";
           setAdminRole(role);
+        } else {
+          // Not an admin, check operators
+          const operatorDoc = await getDoc(
+            doc(db, "operators", currentUser.uid)
+          );
+          console.log("[AdminFrame] Found in operators?", operatorDoc.exists());
+          
+          if (operatorDoc.exists()) {
+            setIsAdmin(true);
+            const idToken = await currentUser.getIdToken(true);
+            setToken(idToken);
+            setAdminRole("operator");
+          } else {
+            setIsAdmin(false);
+          }
         }
       } catch (error) {
         console.error("[AdminFrame] Error checking admin status:", error);

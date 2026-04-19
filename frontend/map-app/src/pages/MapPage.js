@@ -358,15 +358,6 @@ const MapPage = () => {
 
   return (
     <div style={{ height: "calc(100vh - 64px)", display: "flex" }}>
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={4000}
-        onClose={() => setSnackbar({ ...snackbar, open: false })}
-      >
-        <Alert onClose={() => setSnackbar({ ...snackbar, open: false })} severity={snackbar.severity}>
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
       {/* SIDEBAR */}
       <div
         style={{

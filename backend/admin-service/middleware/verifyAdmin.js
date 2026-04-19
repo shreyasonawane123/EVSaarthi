@@ -6,16 +6,24 @@ const { db } = require("../config/firebase");
 
 const verifyAdmin = async (req, res, next) => {
   try {
-    const adminDoc = await db.collection("adminUsers").doc(req.uid).get();
+    let adminDoc = await db.collection("adminUsers").doc(req.uid).get();
+    let data;
 
-    if (!adminDoc.exists) {
-      return res.status(403).json({
-        error: "Access denied. You are not an admin.",
-      });
+    if (adminDoc.exists) {
+      data = adminDoc.data();
+    } else {
+      // Not in adminUsers, check operators collection
+      const operatorDoc = await db.collection("operators").doc(req.uid).get();
+      if (operatorDoc.exists) {
+        data = operatorDoc.data();
+      } else {
+        return res.status(403).json({
+          error: "Access denied. You are not authorized for this portal.",
+        });
+      }
     }
 
-    const data = adminDoc.data();
-    if (data.role !== "admin" && data.role !== "superadmin") {
+    if (data.role !== "admin" && data.role !== "superadmin" && data.role !== "operator") {
       return res.status(403).json({
         error: "Access denied. Insufficient role.",
       });
@@ -23,6 +31,7 @@ const verifyAdmin = async (req, res, next) => {
 
     req.adminRole = data.role;
     req.adminName = data.name;
+    req.tenantId = data.tenantId || null;
     next();
   } catch (error) {
     console.error("[admin-service] Admin verification failed:", error.message);

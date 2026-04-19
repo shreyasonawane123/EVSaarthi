@@ -29,16 +29,50 @@ export const AuthProvider = ({ children }) => {
     const savedName  = sessionStorage.getItem("admin_name");
     const savedRole  = sessionStorage.getItem("admin_role") || "admin";
 
+    const fetchProfile = async (token, baseName, baseRole) => {
+        try {
+            const API = process.env.REACT_APP_API_URL || "http://localhost:5000";
+            const res = await fetch(`${API}/api/admin/me`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            const data = await res.json();
+            if (data.success) {
+                setCurrentUser({
+                    displayName: data.admin.name || baseName,
+                    uid: data.admin.uid,
+                    tenantId: data.admin.tenantId,
+                    tenantName: data.admin.tenantName,
+                    getIdToken: async () => token,
+                });
+                setAdminRole(data.admin.role);
+                // Update session storage with latest
+                sessionStorage.setItem("admin_role", data.admin.role);
+                sessionStorage.setItem("admin_name", data.admin.name || baseName);
+            } else {
+                // Fallback to minimal user if /me fails
+                setCurrentUser({
+                    displayName: baseName,
+                    uid: "admin",
+                    getIdToken: async () => token,
+                });
+                setAdminRole(baseRole);
+            }
+        } catch (err) {
+            console.error("AuthContext: Profile fetch failed", err);
+            setCurrentUser({
+                displayName: baseName,
+                uid: "admin",
+                getIdToken: async () => token,
+            });
+            setAdminRole(baseRole);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     if (savedToken) {
-      setCurrentUser({
-        displayName: savedName,
-        uid: "admin", // mock uid — real uid is encoded in the JWT, not needed here
-        getIdToken: async () => savedToken,
-      });
-      setAdminRole(savedRole);
-      setLoading(false);
+      fetchProfile(savedToken, savedName, savedRole);
     } else {
-      // Not logged in
       setLoading(false);
     }
   }, []);
