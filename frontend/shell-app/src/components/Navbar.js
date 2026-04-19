@@ -12,7 +12,8 @@ import {
   DirectionsCar as DirectionsCarIcon,
   Logout as LogoutIcon,
   Menu as MenuIcon,
-  Close as CloseIcon
+  Close as CloseIcon,
+  Dashboard as DashboardIcon
 } from '@mui/icons-material';
 import { 
   Avatar, 
@@ -49,6 +50,7 @@ const Navbar = () => {
   };
 
   const navLinks = [
+    { label: 'Dashboard', path: '/dashboard', icon: <DashboardIcon fontSize="small" /> },
     { label: 'Stations', path: '/map', icon: <EvStationIcon fontSize="small" /> },
     { label: 'Bookings', path: '/booking', icon: <CalendarMonthIcon fontSize="small" /> },
     { label: 'Analytics', path: '/analytics', icon: <BarChartIcon fontSize="small" /> },

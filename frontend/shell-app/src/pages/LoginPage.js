@@ -22,6 +22,7 @@ const LoginPage = () => {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [showStaffLogin, setShowStaffLogin] = useState(false);
   const { isLoggedIn } = useAuth();
   const navigate = useNavigate();
 
@@ -246,8 +247,12 @@ const LoginPage = () => {
 
           {/* Card Body */}
           <div className="p-10 text-center">
-            <h2 className="text-2xl font-extrabold text-[#1A1A1A] mb-1">Sign In to Dashboard</h2>
-            <p className="text-sm text-gray-500 mb-8 font-medium">Access your EV portal</p>
+            <h2 className="text-2xl font-extrabold text-[#1A1A1A] mb-1">
+              {showStaffLogin ? "Staff Portal" : "Get Started"}
+            </h2>
+            <p className="text-sm text-gray-500 mb-8 font-medium">
+              {showStaffLogin ? "Access operator & admin tools" : "India's smartest EV companion"}
+            </p>
 
             {error && (
               <div className="bg-red-50 text-red-600 p-3 rounded-xl text-xs mb-4 border border-red-100 font-bold animate-shake text-left">
@@ -255,70 +260,51 @@ const LoginPage = () => {
               </div>
             )}
 
-            {/* Email/Pass Form */}
-            <form onSubmit={handleEmailLogin} className="space-y-4 mb-6">
-              <div className="text-left">
-                <label className="text-xs font-bold text-gray-500 ml-1 uppercase tracking-wider">Email address</label>
-                <input 
-                  type="email" 
-                  value={email} 
-                  onChange={e => setEmail(e.target.value)}
-                  className="w-full mt-1.5 p-3.5 rounded-xl border border-gray-100 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-[#16A34A] focus:border-transparent outline-none transition-all text-sm font-medium"
-                  placeholder="operator@greencharge.com" 
-                />
-              </div>
-              <div className="text-left">
-                <label className="text-xs font-bold text-gray-500 ml-1 uppercase tracking-wider">Password</label>
-                <input 
-                  type="password" 
-                  value={password} 
-                  onChange={e => setPassword(e.target.value)}
-                  className="w-full mt-1.5 p-3.5 rounded-xl border border-gray-100 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-[#16A34A] focus:border-transparent outline-none transition-all text-sm font-medium"
-                  placeholder="At least 6 characters" 
-                />
-              </div>
+            <div className="space-y-4">
+              {/* Google Button */}
               <button
-                type="submit"
+                onClick={handleGoogleLogin}
                 disabled={loading}
-                className="w-full py-4 bg-[#16A34A] hover:bg-[#15803D] text-white font-extrabold rounded-xl transition-all shadow-lg shadow-green-100 disabled:opacity-70 disabled:cursor-not-allowed"
+                className="w-full relative py-4 bg-[#16A34A] hover:bg-[#15803D] text-white font-extrabold rounded-xl transition-all shadow-lg shadow-green-100 flex items-center justify-center gap-3 disabled:opacity-70 disabled:cursor-not-allowed"
               >
-                {loading ? "Verifying..." : "Sign In to Dashboard"}
+                <GoogleIcon />
+                {loading ? "Please wait..." : "Continue with Google"}
               </button>
-            </form>
 
-            {/* Divider */}
-            <div className="flex items-center gap-3 mb-6">
-              <div className="flex-1 h-px bg-gray-100" />
-              <span className="text-[10px] text-[#9CA3AF] uppercase tracking-widest font-black">
-                or sign in with
-              </span>
-              <div className="flex-1 h-px bg-gray-100" />
+              {/* Divider */}
+              <div className="flex items-center gap-3 my-6">
+                <div className="flex-1 h-px bg-gray-100" />
+                <span className="text-[10px] text-[#9CA3AF] uppercase tracking-widest font-black">
+                  or
+                </span>
+                <div className="flex-1 h-px bg-gray-100" />
+              </div>
+
+              {/* Guest Find Stations Button */}
+              <button
+                onClick={() => navigate('/map')}
+                className="w-full py-3.5 bg-white hover:bg-gray-50 text-[#16A34A] font-extrabold rounded-xl transition-all duration-300 border-2 border-[#16A34A] flex items-center justify-center gap-2 shadow-sm"
+              >
+                <EvStationIcon className="!text-xl" />
+                Find Stations
+              </button>
             </div>
 
-            {/* Google Button */}
-            <button
-              onClick={handleGoogleLogin}
-              disabled={loading}
-              className="w-full relative py-3.5 bg-white hover:bg-gray-50 text-[#1A1A1A] font-bold rounded-xl transition-all duration-300 border border-gray-200 flex items-center justify-center gap-3 disabled:opacity-70 disabled:cursor-not-allowed shadow-sm"
-            >
-              <GoogleIcon />
-              {loading ? "Please wait..." : "Continue with Google"}
-            </button>
+            {/* Trust Badges Section - Common to both */}
+            <div className="mt-8">
+              <div className="flex items-center gap-3 my-8">
+                <div className="flex-1 h-px bg-gray-100" />
+                <span className="text-[11px] text-[#9CA3AF] uppercase tracking-wider font-bold">
+                  trusted & secure
+                </span>
+                <div className="flex-1 h-px bg-gray-100" />
+              </div>
 
-            {/* Divider */}
-            <div className="flex items-center gap-3 my-8">
-              <div className="flex-1 h-px bg-gray-100" />
-              <span className="text-[11px] text-[#9CA3AF] uppercase tracking-wider font-bold">
-                trusted & secure
-              </span>
-              <div className="flex-1 h-px bg-gray-100" />
-            </div>
-
-            {/* Trust Badges */}
-            <div className="grid grid-cols-3 gap-2 mb-8 text-center">
-              <TrustBadge icon={<LockIcon fontSize="small" />} text="Secure" />
-              <TrustBadge icon={<BoltIcon fontSize="small" />} text="Instant" />
-              <TrustBadge icon={<NatureIcon fontSize="small" />} text="Eco-friendly" />
+              <div className="grid grid-cols-3 gap-2 mb-8 text-center">
+                <TrustBadge icon={<LockIcon fontSize="small" />} text="Secure" />
+                <TrustBadge icon={<BoltIcon fontSize="small" />} text="Instant" />
+                <TrustBadge icon={<NatureIcon fontSize="small" />} text="Eco-friendly" />
+              </div>
             </div>
 
             <p className="text-[11px] text-gray-400 leading-relaxed font-medium">

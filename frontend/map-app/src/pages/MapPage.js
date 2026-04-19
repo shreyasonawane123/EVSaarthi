@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo, useRef } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "../firebase";
 import axios from "axios";
+import { getStationsFromIDB, saveStationsToIDB } from "../stationCache";
 
 import {
   EvStation as EvStationIcon,
@@ -107,7 +108,7 @@ const buildPopupHTML = (station) => `
       ? `<div style="background:#F0FDF4;color:#16A34A;font-size:11px;font-weight:bold;padding:3px 8px;border-radius:4px;margin-bottom:12px;display:inline-block;">UPI Accepted</div>`
       : ''}
     <button
-      onclick="window.top.location.href='http://localhost:3000/booking?stationId=${station.id}'"
+      onclick="window.handleBookingClick('${station.id}')"
       style="width:100%;background:#EAB308;border:none;border-radius:8px;padding:10px;font-size:14px;font-weight:bold;color:#1A1A1A;cursor:pointer;">
       Book a Slot
     </button>
@@ -134,14 +135,17 @@ const MapPage = () => {
   const infoWindowRef = useRef(null);
   const cardRefs = useRef({});
 
-  // FETCH STATIONS — Switched to API Gateway for better Iframe / Local Port support
+  // FETCH STATIONS — Stale-while-revalidate:
+  //   1. Load instantly from IndexedDB (no spinner if cache hit)
+  //   2. Fetch fresh data from API in background
+  //   3. Update UI + persist fresh data back to IndexedDB
   useEffect(() => {
-    // 1. Check for token in URL (for iframe support on localhost)
+    // Check for token in URL (for iframe support on localhost)
     const urlParams = new URLSearchParams(window.location.search);
     const tokenParam = urlParams.get("token");
 
-    const fetchStationsApi = async (token) => {
-      setLoading(true);
+    const fetchStationsApi = async (token, isBackground = false) => {
+      if (!isBackground) setLoading(true);
       try {
         console.log("MapPage: Fetching stations from API Gateway...");
         const response = await axios.get(`${API_GATEWAY}/api/stations/all`, {
@@ -149,41 +153,81 @@ const MapPage = () => {
         });
 
         if (response.data.success) {
-          console.log(`MapPage: Loaded ${response.data.stations.length} stations.`);
-          setStations(response.data.stations);
+          const freshStations = response.data.stations;
+          console.log(`MapPage: Loaded ${freshStations.length} stations from API (cached: ${response.data.cached || false}).`);
+          setStations(freshStations);
+
+          // Persist to IndexedDB so next load is instant
+          saveStationsToIDB(freshStations);
         }
       } catch (error) {
         console.error("MapPage: API Error:", error.message);
         if (error.response?.status === 403 || error.response?.status === 401) {
           showNotify("Session expired or unauthorized. Please re-login.", "error");
         } else {
-          showNotify("Failed to fetch stations from server.", "error");
+          // Only show error toast if we have nothing to show (no cached data)
+          if (!isBackground) {
+            showNotify("Failed to fetch stations from server.", "error");
+          }
         }
       } finally {
-        setLoading(false);
+        if (!isBackground) setLoading(false);
+      }
+    };
+
+    // Register global handler for the popup button
+    window.handleBookingClick = (stationId) => {
+      const user = auth.currentUser;
+      // If user is logged in via SDK OR we have a token from the Shell in the URL
+      if (user || tokenParam) {
+        window.top.location.href = `http://localhost:3000/booking?stationId=${stationId}`;
+      } else {
+        showNotify("Please login to continue booking", "warning");
+        setTimeout(() => {
+          window.top.location.href = "http://localhost:3000/login";
+        }, 1500);
+      }
+    };
+
+    const runWithToken = async (token) => {
+      // Step 1: Try IndexedDB first for instant display
+      const cachedStations = await getStationsFromIDB();
+      if (cachedStations && cachedStations.length > 0) {
+        console.log("MapPage: Rendering from IDB cache immediately.");
+        setStations(cachedStations);
+        setLoading(false); // Hide spinner — we have data
+
+        // Step 2: Revalidate in background without showing spinner
+        fetchStationsApi(token, true);
+      } else {
+        // No cache: fetch normally with loading spinner
+        fetchStationsApi(token, false);
       }
     };
 
     if (tokenParam) {
       console.log("MapPage: Using token from URL.");
-      fetchStationsApi(tokenParam);
-      const interval = setInterval(() => fetchStationsApi(tokenParam), 30000);
+      runWithToken(tokenParam);
+      const interval = setInterval(() => fetchStationsApi(tokenParam, true), 30000);
       return () => clearInterval(interval);
     }
 
-    // 2. Fallback: Standard Auth Listener for standalone mode
+    // Fallback: Standard Auth Listener for standalone mode
     const unsubAuth = onAuthStateChanged(auth, async (user) => {
       if (user) {
         const token = await user.getIdToken();
-        fetchStationsApi(token);
+        runWithToken(token);
       } else {
-        console.log("MapPage: No user detected.");
-        setStations([]);
-        setLoading(false);
+        console.log("MapPage: No user detected (Guest Mode).");
+        // Guests can still see stations
+        runWithToken(null);
       }
     });
 
-    return () => unsubAuth();
+    return () => {
+      unsubAuth();
+      delete window.handleBookingClick;
+    };
   }, []);
 
   const filteredStations = useMemo(() => {

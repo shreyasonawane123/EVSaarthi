@@ -39,7 +39,7 @@ const MapPage = () => {
           setMapUrl("http://localhost:3003/");
         }
       } else {
-        setMapUrl("");
+        setMapUrl("http://localhost:3003/");
       }
     };
     initMap();

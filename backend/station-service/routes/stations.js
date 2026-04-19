@@ -6,6 +6,28 @@ const verifyToken = require("../middleware/verifyToken");
 const verifyOperator = require("../middleware/verifyOperator");
 const { generateSlotsForStation } = require("../utils/slotGenerator");
 
+// ─────────────────────────────────────────────────────────────────────────────
+// IN-MEMORY CACHE (station list only — does NOT affect booking/admin routes)
+// ─────────────────────────────────────────────────────────────────────────────
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+const stationsCache = {
+  all: { data: null, fetchedAt: 0 },
+  nearby: new Map(), // key = "lat,lng,radiusKm"
+};
+
+function isCacheFresh(fetchedAt) {
+  return (Date.now() - fetchedAt) < CACHE_TTL_MS;
+}
+
+/** Call this whenever a station is mutated so caches are invalidated immediately. */
+function invalidateStationsCache() {
+  stationsCache.all.data = null;
+  stationsCache.all.fetchedAt = 0;
+  stationsCache.nearby.clear();
+  console.log("[station-service] Station cache invalidated.");
+}
+
 // Haversine formula
 function getDistanceKm(lat1, lng1, lat2, lng2) {
   const R = 6371; // Earth's radius in km
@@ -53,8 +75,14 @@ router.get("/health", (req, res) => {
 });
 
 // GET /api/stations/all
-// Returns ONLY isActive = true stations
+// Returns ONLY isActive = true stations (with server-side in-memory cache)
 router.get("/all", async (req, res) => {
+  // Serve from cache if still fresh
+  if (stationsCache.all.data && isCacheFresh(stationsCache.all.fetchedAt)) {
+    console.log("[station-service] /all served from cache.");
+    return res.json({ success: true, stations: stationsCache.all.data, cached: true });
+  }
+
   try {
     const snapshot = await db
       .collection("stations")
@@ -68,6 +96,11 @@ router.get("/all", async (req, res) => {
       updatedAt: doc.data().updatedAt?.toDate?.().toISOString() || null,
     }));
 
+    // Store in cache
+    stationsCache.all.data = stations;
+    stationsCache.all.fetchedAt = Date.now();
+    console.log(`[station-service] /all fetched from Firestore and cached (${stations.length} stations).`);
+
     res.json({ success: true, stations });
   } catch (error) {
     console.error("[station-service] Get all stations error:", error.message);
@@ -76,7 +109,7 @@ router.get("/all", async (req, res) => {
 });
 
 // GET /api/stations/nearby
-// Queries nearby stations based on lat/lng and radiusKm
+// Queries nearby stations based on lat/lng and radiusKm (with server-side in-memory cache)
 router.get("/nearby", async (req, res) => {
   const { lat, lng, radiusKm } = req.query;
 
@@ -87,6 +120,15 @@ router.get("/nearby", async (req, res) => {
   const userLat = parseFloat(lat);
   const userLng = parseFloat(lng);
   const radius = parseFloat(radiusKm) || 10;
+
+  // Round coordinates to 2 decimal places for a coarse cache key (~1 km precision)
+  const cacheKey = `${userLat.toFixed(2)},${userLng.toFixed(2)},${radius}`;
+  const cached = stationsCache.nearby.get(cacheKey);
+
+  if (cached && isCacheFresh(cached.fetchedAt)) {
+    console.log(`[station-service] /nearby served from cache (key: ${cacheKey}).`);
+    return res.json({ success: true, stations: cached.data, cached: true });
+  }
 
   try {
     const snapshot = await db
@@ -114,6 +156,10 @@ router.get("/nearby", async (req, res) => {
 
     // Sort by distance ascending
     stations.sort((a, b) => a.distance - b.distance);
+
+    // Store in nearby cache
+    stationsCache.nearby.set(cacheKey, { data: stations, fetchedAt: Date.now() });
+    console.log(`[station-service] /nearby fetched from Firestore and cached (${stations.length} stations, key: ${cacheKey}).`);
 
     res.json({ success: true, stations });
   } catch (error) {
