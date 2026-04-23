@@ -112,8 +112,10 @@ router.post("/payment/verify", verifyToken, async (req, res) => {
       transaction.set(bookingRef, bookingData);
       transaction.update(stationRef, { availableSlots: station.availableSlots - 1, updatedAt: now });
 
-      return { bookingId: bookingRef.id };
+      return { bookingId: bookingRef.id, station };
     });
+
+    const { bookingId, station } = result;
 
     // Calculate points: (duration_min / 60) * points_per_hour
     // Handle cases where approvedPointsPerHour might be a string (e.g. "25 pts/hr")
@@ -131,9 +133,9 @@ router.post("/payment/verify", verifyToken, async (req, res) => {
         userId: req.uid,
         reason: "session_completed",
         points: sessionPoints,
-        referenceId: result.bookingId,
+        referenceId: bookingId,
         checkDuplicate: true,
-        duplicateKey: result.bookingId,
+        duplicateKey: bookingId,
       },
       { headers: { "x-internal-secret": process.env.INTERNAL_SECRET } }
     ).catch((err) => console.error("[booking-service] Session points failed:", err.message));
@@ -146,13 +148,13 @@ router.post("/payment/verify", verifyToken, async (req, res) => {
         {
           pointsToRedeem: Number(pointsToRedeem),
           redemptionType: "charging_discount",
-          referenceId: result.bookingId,
+          referenceId: bookingId,
         },
         { headers: { Authorization: req.headers.authorization } }
       ).catch((err) => console.error("[booking] Points deduction failed:", err.message));
     }
 
-    res.status(201).json({ success: true, booking: result });
+    res.status(201).json({ success: true, booking: { bookingId } });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
@@ -174,24 +176,6 @@ router.get("/my-bookings", verifyToken, async (req, res) => {
   }
 });
 
-router.patch("/cancel/:bookingId", verifyToken, async (req, res) => {
-  try {
-    const br = db.collection("bookings").doc(req.params.bookingId);
-    const bd = await br.get();
-    if (!bd.exists) return res.status(404).json({ error: "Booking not found" });
-    const now = admin.firestore.FieldValue.serverTimestamp();
-    await br.update({ status: "cancelled", updatedAt: now });
-    const sr = db.collection("stations").doc(bd.data().stationId);
-    const sd = await sr.get();
-    if (sd.exists) {
-      await sr.update({ availableSlots: (sd.data().availableSlots || 0) + 1, updatedAt: now });
-    }
-    res.json({ success: true });
-  } catch (e) { 
-    console.error("[cancel] Error:", e.message);
-    res.status(500).json({ error: e.message }); 
-  }
-});
 
 router.get("/:bookingId", verifyToken, async (req, res) => {
   try {

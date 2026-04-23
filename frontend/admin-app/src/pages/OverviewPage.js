@@ -22,6 +22,8 @@ const OverviewPage = () => {
     totalVehicles: 0
   });
   const [recentStations, setRecentStations] = useState([]);
+  const [allStations, setAllStations] = useState([]);
+  const [tenants, setTenants] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -43,8 +45,17 @@ const OverviewPage = () => {
       // Fetch stations
       const stationsRes = await axios.get(`${API_GATEWAY}/api/admin/stations`, { headers });
       if (stationsRes.data.success) {
+        setAllStations(stationsRes.data.stations);
         // Take last 5 created (assumes descending order from backend)
         setRecentStations(stationsRes.data.stations.slice(0, 5));
+      }
+
+      // Fetch tenants for superadmin grouping
+      if (adminRole === "superadmin") {
+        const tenantsRes = await axios.get(`${API_GATEWAY}/api/admin/tenants`, { headers });
+        if (tenantsRes.data.success) {
+          setTenants(tenantsRes.data.tenants);
+        }
       }
     } catch (error) {
       console.error("Failed to fetch overview data", error);
@@ -54,11 +65,11 @@ const OverviewPage = () => {
   };
 
   const statCards = [
-    { label: "Total Users", value: stats.totalUsers, icon: <PeopleIcon className="text-blue-500 !text-3xl" />, bg: "bg-[#F0F9FF]" },
-    { label: "Total Stations", value: stats.totalStations, icon: <EvStationIcon className="text-green-500 !text-3xl" />, bg: "bg-[#F0FDF4]" },
-    { label: "Active Stations", value: stats.activeStations, icon: <CheckCircleIcon className="text-yellow-600 !text-3xl" />, bg: "bg-[#FFFBEB]" },
-    { label: "Registered Vehicles", value: stats.totalVehicles, icon: <DirectionsCarIcon className="text-purple-500 !text-3xl" />, bg: "bg-[#F5F3FF]" },
-  ];
+    { id: 'users', label: "Total Users", value: stats.totalUsers, icon: <PeopleIcon className="text-blue-500 !text-3xl" />, bg: "bg-[#F0F9FF]", roles: ["superadmin"] },
+    { id: 'stations', label: "Total Stations", value: stats.totalStations, icon: <EvStationIcon className="text-green-500 !text-3xl" />, bg: "bg-[#F0FDF4]" },
+    { id: 'active', label: "Active Stations", value: stats.activeStations, icon: <CheckCircleIcon className="text-yellow-600 !text-3xl" />, bg: "bg-[#FFFBEB]" },
+    { id: 'vehicles', label: "Registered Vehicles", value: stats.totalVehicles, icon: <DirectionsCarIcon className="text-purple-500 !text-3xl" />, bg: "bg-[#F5F3FF]", roles: ["superadmin"] },
+  ].filter(card => !card.roles || card.roles.includes(adminRole));
 
   if (loading) {
     return <div className="p-8 text-center text-gray-500 font-medium">Loading Overview...</div>;
@@ -96,6 +107,43 @@ const OverviewPage = () => {
           </div>
         ))}
       </div>
+
+      {/* STATIONS BY TENANT (Superadmin Only) */}
+      {adminRole === "superadmin" && tenants.length > 0 && (
+        <div className="space-y-4">
+          <h2 className="text-xl font-black text-[#1A1A1A]">Stations by Tenant</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {tenants.map(tenant => {
+              const tenantStations = allStations.filter(s => s.tenantId === tenant.id);
+              const activeCount = tenantStations.filter(s => s.isActive).length;
+              
+              return (
+                <div key={tenant.id} className="bg-white rounded-xl p-5 border border-gray-100 shadow-sm space-y-3">
+                  <div className="flex items-center justify-between border-b border-gray-50 pb-3">
+                    <span className="text-sm font-black text-[#1A1A1A] truncate max-w-[70%]" title={tenant.name}>
+                      {tenant.name}
+                    </span>
+                    <span className="bg-gray-100 text-gray-500 text-[10px] font-black px-2 py-0.5 rounded-full uppercase">
+                      Tenant ID: {tenant.id.slice(0, 5)}
+                    </span>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-[#F9FAFB] p-3 rounded-lg border border-gray-50">
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Total</p>
+                      <p className="text-xl font-black text-[#1A1A1A]">{tenantStations.length}</p>
+                    </div>
+                    <div className="bg-[#F0FDF4] p-3 rounded-lg border border-[#BBF7D0]">
+                      <p className="text-[10px] font-bold text-[#16A34A] uppercase tracking-wider mb-1">Active</p>
+                      <p className="text-xl font-black text-[#16A34A]">{activeCount}</p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* RECENT STATIONS TABLE */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">

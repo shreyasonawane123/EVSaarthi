@@ -4,13 +4,21 @@
 
 import React, { useState, useEffect } from "react";
 import axios from "axios";
+import { useAuth } from "../context/AuthContext";
 
 const API = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
 const STATUS_COLOR = { pending: "#d97706", approved: "#16a34a", rejected: "#dc2626" };
 
 export default function AdminPointsManagement({ token }) {
+  const { adminRole } = useAuth();
   const [tab, setTab] = useState("config");
+
+  const tabs = [
+    { key: "config", label: "⚙️ Configuration" },
+    { key: "requests", label: "📋 Station Requests", roles: ["admin"] },
+    { key: "accessories", label: "🛍️ Accessories" },
+  ].filter(t => !t.roles || t.roles.includes(adminRole));
 
   return (
     <div style={pageWrap}>
@@ -21,11 +29,7 @@ export default function AdminPointsManagement({ token }) {
 
       {/* Tab navigation */}
       <div style={tabBar}>
-        {[
-          { key: "config", label: "⚙️ Configuration" },
-          { key: "requests", label: "📋 Station Requests" },
-          { key: "accessories", label: "🛍️ Accessories" },
-        ].map((t) => (
+        {tabs.map((t) => (
           <button
             key={t.key}
             id={`admin-points-tab-${t.key}`}
@@ -146,7 +150,7 @@ function RequestsSection({ token }) {
           <table style={tableStyle}>
             <thead>
               <tr>
-                {["Station", "Operator", "Pts/Hr", "Status", "Date", "Note", "Actions"].map((h) => (
+                {["Station", "Operator", "Pts/Hr", "Status", "Date", "Actions"].map((h) => (
                   <th key={h} style={thStyle}>{h}</th>
                 ))}
               </tr>
@@ -163,14 +167,6 @@ function RequestsSection({ token }) {
                     </span>
                   </td>
                   <td style={tdStyle}>{r.createdAt ? new Date(r.createdAt).toLocaleDateString("en-IN") : "—"}</td>
-                  <td style={tdStyle}>
-                    <input
-                      placeholder="Optional note..."
-                      value={notes[r.id] || ""}
-                      onChange={(e) => setNotes((p) => ({ ...p, [r.id]: e.target.value }))}
-                      style={{ ...inputStyle, padding: "6px 10px", fontSize: 13, width: 150 }}
-                    />
-                  </td>
                   <td style={tdStyle}>
                     {r.status === "pending" && (
                       <div style={{ display: "flex", gap: 6 }}>

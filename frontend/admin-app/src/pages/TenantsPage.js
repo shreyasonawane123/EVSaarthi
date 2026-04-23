@@ -7,6 +7,7 @@ import {
   ErrorOutline as ErrorOutlineIcon,
   Close as CloseIcon,
   Edit as EditIcon,
+  Delete as DeleteIcon,
 } from "@mui/icons-material";
 import CircularProgress from "@mui/material/CircularProgress";
 import axios from "axios";
@@ -51,6 +52,7 @@ const TenantModal = ({ onClose, onSuccess, currentUser, editingTenant }) => {
   const [name, setName]                   = useState(editingTenant?.name || "");
   const [contactEmail, setContactEmail]   = useState(editingTenant?.contactEmail || "");
   const [contactPerson, setContactPerson] = useState(editingTenant?.contactPerson || "");
+  const [adminPassword, setAdminPassword] = useState("");
   const [error, setError]                 = useState("");
   const [loading, setLoading]             = useState(false);
 
@@ -70,7 +72,8 @@ const TenantModal = ({ onClose, onSuccess, currentUser, editingTenant }) => {
           headers: { Authorization: `Bearer ${token}` }
         });
       } else {
-        res = await axios.post(`${API}/api/admin/tenants`, payload, {
+        const createPayload = { ...payload, adminPassword };
+        res = await axios.post(`${API}/api/admin/tenants`, createPayload, {
           headers: { Authorization: `Bearer ${token}` }
         });
       }
@@ -81,7 +84,7 @@ const TenantModal = ({ onClose, onSuccess, currentUser, editingTenant }) => {
         setError(res.data.error || "Something went wrong.");
       }
     } catch (err) {
-      setError("Network error or invalid data.");
+      setError(err.response?.data?.error || "Network error or invalid data.");
     } finally {
       setLoading(false);
     }
@@ -126,6 +129,17 @@ const TenantModal = ({ onClose, onSuccess, currentUser, editingTenant }) => {
             onChange={e => setContactPerson(e.target.value)} 
             fullWidth size="small"
           />
+          {!editingTenant && (
+            <TextField 
+              label="Admin Password (set for contact email)" 
+              type="text"
+              value={adminPassword} 
+              onChange={e => setAdminPassword(e.target.value)} 
+              fullWidth size="small"
+              placeholder="Min 6 characters"
+              helperText="This password will be used for the admin account created with the contact email."
+            />
+          )}
         </div>
 
         {error && (
@@ -194,6 +208,26 @@ const TenantsPage = () => {
     setShowModal(false);
     setToast({ type: "success", msg: `${name} saved successfully!` });
     fetchData();
+  };
+
+  const handleDelete = async (tenant) => {
+    if (!window.confirm(`Are you sure you want to delete ${tenant.name}? This will NOT delete associated admins or stations, but they will become unlinked.`)) return;
+
+    try {
+      const token = await currentUser.getIdToken();
+      const res = await axios.delete(`${API}/api/admin/tenants/${tenant.id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (res.data.success) {
+        setToast({ type: "success", msg: "Tenant deleted successfully" });
+        fetchData();
+      } else {
+        setToast({ type: "error", msg: res.data.error || "Failed to delete tenant" });
+      }
+    } catch (err) {
+      setToast({ type: "error", msg: "Failed to delete tenant" });
+    }
   };
 
   if (adminRole !== "superadmin") {
@@ -299,16 +333,30 @@ const TenantsPage = () => {
                         {t.contactPerson || "-"}
                       </td>
                       <td style={{ padding: "14px 16px" }}>
-                        <button
-                          onClick={() => { setEditingTenant(t); setShowModal(true); }}
-                          style={{
-                            background: "transparent", border: "none", cursor: "pointer",
-                            color: "#9CA3AF"
-                          }}
-                          title="Edit Tenant"
-                        >
-                          <EditIcon fontSize="small" />
-                        </button>
+                        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                          <button
+                            onClick={() => { setEditingTenant(t); setShowModal(true); }}
+                            style={{
+                              background: "transparent", border: "none", cursor: "pointer",
+                              color: "#9CA3AF"
+                            }}
+                            title="Edit Tenant"
+                          >
+                            <EditIcon fontSize="small" />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(t)}
+                            style={{
+                              background: "transparent", border: "none", cursor: "pointer",
+                              color: "#FECACA"
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.color = "#DC2626"}
+                            onMouseLeave={(e) => e.currentTarget.style.color = "#FECACA"}
+                            title="Delete Tenant"
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}

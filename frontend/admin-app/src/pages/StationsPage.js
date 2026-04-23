@@ -101,7 +101,9 @@ const getPaymentBadgeColor = (method) => {
 const StationsPage = () => {
   const { currentUser, adminRole } = useAuth();
   const [stations, setStations] = useState([]);
+  const [tenants, setTenants] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [tenantFilter, setTenantFilter] = useState("all");
 
   // Modal states
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -148,7 +150,22 @@ const StationsPage = () => {
 
   useEffect(() => {
     fetchStations();
+    if (adminRole === "superadmin") {
+      fetchTenants();
+    }
   }, []);
+
+  const fetchTenants = async () => {
+    try {
+      const token = await currentUser.getIdToken();
+      const res = await axios.get(`${API_GATEWAY}/api/admin/tenants`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.data.success) setTenants(res.data.tenants);
+    } catch (e) {
+      console.error("Failed to fetch tenants", e);
+    }
+  };
 
   const fetchStations = async () => {
     try {
@@ -579,6 +596,13 @@ const StationsPage = () => {
   };
 
   if (loading) return <div className="p-8 text-center text-gray-500">Loading Stations...</div>;
+  
+  const filteredStations = stations.filter(st => {
+    if (adminRole === "superadmin" && tenantFilter !== "all") {
+      return st.tenantId === tenantFilter;
+    }
+    return true;
+  });
 
   return (
     <div className="p-2 sm:p-4 lg:p-6 max-w-7xl mx-auto space-y-6 transition-all">
@@ -587,8 +611,30 @@ const StationsPage = () => {
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-black text-[#1A1A1A]">Charging Stations</h1>
           <span className="bg-[#FFFBEB] text-[#D97706] px-3 py-1 rounded-full text-xs font-bold shadow-sm border border-[#FEF3C7]">
-            {stations.length} Total
+            {filteredStations.length} Total
           </span>
+          {adminRole === "superadmin" && (
+             <FormControl size="small" sx={{ minWidth: 200, ml: 1 }}>
+                <InputLabel id="tenant-filter-label">Filter by Tenant</InputLabel>
+                <Select
+                  labelId="tenant-filter-label"
+                  value={tenantFilter}
+                  label="Filter by Tenant"
+                  onChange={(e) => setTenantFilter(e.target.value)}
+                  sx={{ 
+                    borderRadius: '10px', 
+                    bgcolor: 'white',
+                    '.MuiOutlinedInput-notchedOutline': { borderColor: '#EAB308' },
+                    '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#D97706' }
+                  }}
+                >
+                  <MenuItem value="all"><em>All Tenants</em></MenuItem>
+                  {tenants.map(t => (
+                    <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>
+                  ))}
+                </Select>
+             </FormControl>
+          )}
         </div>
         <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
           {/* Superadmin is read-only for stations per spec */}
@@ -654,6 +700,7 @@ const StationsPage = () => {
                 <th className="p-3 sm:p-4 font-bold text-left">ID</th>
                 <th className="p-3 sm:p-4 font-bold text-left">Station</th>
                 <th className="p-3 sm:p-4 font-bold text-left">Location</th>
+                {adminRole === "superadmin" && <th className="p-3 sm:p-4 font-bold text-left">Tenant</th>}
                 <th className="p-3 sm:p-4 font-bold">Connectors</th>
                 <th className="p-3 sm:p-4 font-bold text-center">Slots</th>
                 <th className="p-3 sm:p-4 font-bold text-center">Price</th>
@@ -664,7 +711,7 @@ const StationsPage = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {stations.map(st => (
+              {filteredStations.map(st => (
                 <tr key={st.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
                   <td className="p-3 sm:p-4">
                     <div className="flex items-center gap-2">
@@ -688,6 +735,13 @@ const StationsPage = () => {
                     <div className="text-xs sm:text-sm font-bold text-[#1A1A1A]">{st.city}</div>
                     <div className="text-[10px] sm:text-xs text-gray-500 leading-tight max-w-[140px]">{st.address}</div>
                   </td>
+                  {adminRole === "superadmin" && (
+                    <td className="p-3 sm:p-4">
+                      <span className="text-xs font-bold text-gray-600">
+                        {tenants.find(t => t.id === st.tenantId)?.name || "—"}
+                      </span>
+                    </td>
+                  )}
                   <td className="p-3 sm:p-4">
                     <div className="flex flex-wrap gap-1 max-w-[100px] sm:max-w-[140px]">
                       {st.connectorTypes?.map(c => (

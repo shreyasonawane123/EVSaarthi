@@ -28,6 +28,7 @@ import OperatorsPage from "./pages/OperatorsPage";
 import TenantsPage   from "./pages/TenantsPage";
 import AdminPointsManagement from "./pages/AdminPointsManagement";
 import OperatorPointsRequestPage from "./pages/OperatorPointsRequestPage";
+import ProfilePage from "./pages/ProfilePage";
 
 // Wrapper reads admin token from sessionStorage (matching admin-app auth pattern)
 const AdminPointsManagementWrapper = () => {
@@ -69,6 +70,7 @@ function App() {
             <Route path="/reviews"  element={<AdminProtectedRoute><ReviewsPage   /></AdminProtectedRoute>} />
             <Route path="/points"   element={<AdminProtectedRoute><AdminPointsManagementWrapper /></AdminProtectedRoute>} />
             <Route path="/operator-points" element={<AdminProtectedRoute><OperatorPointsRequestPage /></AdminProtectedRoute>} />
+            <Route path="/profile"  element={<AdminProtectedRoute><ProfilePage /></AdminProtectedRoute>} />
 
             {/* Catch-all: redirect unknown paths to overview */}
             <Route path="*" element={<Navigate to="/" replace />} />

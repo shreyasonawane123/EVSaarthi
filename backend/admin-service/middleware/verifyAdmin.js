@@ -32,6 +32,7 @@ const verifyAdmin = async (req, res, next) => {
     req.adminRole = data.role;
     req.adminName = data.name;
     req.tenantId = data.tenantId || null;
+    req.stationId = data.stationId || null;
     next();
   } catch (error) {
     console.error("[admin-service] Admin verification failed:", error.message);

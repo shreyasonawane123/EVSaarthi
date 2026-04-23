@@ -261,29 +261,6 @@ const BookingPage = () => {
     }
   };
 
-  const cancelBooking = async (id) => {
-    openConfirm(
-      "Cancel Booking",
-      "Are you sure you want to cancel this booking?",
-      async () => {
-        try {
-          const token = await currentUser.getIdToken();
-          await axios.patch(`${GATEWAY_URL}/api/booking/cancel/${id}`, {}, {
-            headers: { Authorization: `Bearer ${token}` }
-          });
-          showNotify("Booking Cancelled.", "success");
-          // Reload slots/bookings
-          const stRes = await axios.get(`${GATEWAY_URL}/api/stations/${stationId}`, {
-            headers: { Authorization: `Bearer ${token}` }
-          });
-          setStation(stRes.data.station);
-          await loadBookings();
-        } catch(err) {
-          showNotify("Failed to cancel: " + (err.response?.data?.error || err.message), "error");
-        }
-      }
-    );
-  };
 
   const handleReviewSubmit = async () => {
     if (!reviewData.text) return showNotify("Please add some feedback", "warning");
@@ -591,14 +568,6 @@ const BookingPage = () => {
                     <div className="font-black text-lg text-[#1A1A1A]">₹{b.totalCost}</div>
                   </div>
                   
-                  {b.status === 'confirmed' && (
-                    <button 
-                      onClick={() => cancelBooking(b.bookingId)}
-                      className="text-sm font-bold text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100 px-4 py-1.5 rounded-lg transition-colors border border-red-100"
-                    >
-                      Cancel
-                    </button>
-                  )}
                 </div>
               </div>
             ))}

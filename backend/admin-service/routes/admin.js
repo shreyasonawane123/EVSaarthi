@@ -174,10 +174,36 @@ router.get("/stations", verifyToken, verifyAdmin, async (req, res) => {
     
     if (req.adminRole === "superadmin") {
       snapshot = await db.collection("stations").get();
+      const tenantsSnapshot = await db.collection("tenants").get();
+      const validTenantIds = new Set(tenantsSnapshot.docs.map(d => d.id));
+
+      let stations = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+        createdAt: doc.data().createdAt?.toDate?.().toISOString() || null,
+        updatedAt: doc.data().updatedAt?.toDate?.().toISOString() || null,
+      }));
+
+      // Filter out stations that belong to a tenant that no longer exists
+      stations = stations.filter(st => !st.tenantId || validTenantIds.has(st.tenantId));
+
+      stations.sort((a, b) => {
+        const ta = a.createdAt || "";
+        const tb = b.createdAt || "";
+        return tb.localeCompare(ta);
+      });
+
+      return res.json({ success: true, stations });
+    } else if (req.adminRole === "operator") {
+      if (!req.stationId) return res.json({ success: true, stations: [] });
+      const doc = await db.collection("stations").doc(req.stationId).get();
+      if (!doc.exists) return res.json({ success: true, stations: [] });
+      return res.json({
+        success: true,
+        stations: [{ id: doc.id, ...doc.data(), createdAt: doc.data().createdAt?.toDate?.().toISOString() || null }]
+      });
     } else {
-      if (!req.tenantId) {
-        return res.json({ success: true, stations: [] });
-      }
+      if (!req.tenantId) return res.json({ success: true, stations: [] });
       snapshot = await db.collection("stations").where("tenantId", "==", req.tenantId).get();
     }
 
@@ -648,7 +674,7 @@ router.get("/tenants", verifyToken, verifyAdmin, async (req, res) => {
 
 // POST /tenants
 router.post("/tenants", verifyToken, verifyAdmin, requireSuperadmin, async (req, res) => {
-  const { name, contactEmail, contactPerson } = req.body;
+  const { name, contactEmail, contactPerson, adminPassword } = req.body;
   if (!name) return res.status(400).json({ error: "Tenant name is required" });
 
   try {
@@ -661,9 +687,55 @@ router.post("/tenants", verifyToken, verifyAdmin, requireSuperadmin, async (req,
     };
     
     const docRef = await db.collection("tenants").add(tenantData);
-    res.json({ success: true, tenant: { id: docRef.id, ...tenantData } });
+    const tenantId = docRef.id;
+
+    // Create admin user if password provided
+    if (adminPassword && contactEmail) {
+      const emailLower = contactEmail.trim().toLowerCase();
+      let uid;
+      try {
+        const userRecord = await admin.auth().getUserByEmail(emailLower);
+        uid = userRecord.uid;
+        // Update password for existing user
+        if (adminPassword.length >= 6) {
+          await admin.auth().updateUser(uid, { password: adminPassword });
+        }
+      } catch (authErr) {
+        if (authErr.code === "auth/user-not-found") {
+          // User doesn't exist -> Create them
+          if (adminPassword.length < 6) {
+            return res.status(400).json({ error: "Admin password must be at least 6 characters" });
+          }
+          const newUser = await admin.auth().createUser({
+            email: emailLower,
+            password: adminPassword,
+            displayName: contactPerson || "Admin"
+          });
+          uid = newUser.uid;
+          await db.collection("users").doc(uid).set({
+            name: contactPerson || "Admin",
+            email: emailLower,
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+          });
+        } else {
+          throw authErr;
+        }
+      }
+
+      // Add/Update in adminUsers
+      await db.collection("adminUsers").doc(uid).set({
+        name: contactPerson || "Admin",
+        email: emailLower,
+        role: "admin",
+        tenantId: tenantId,
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+    }
+
+    res.json({ success: true, tenant: { id: tenantId, ...tenantData } });
   } catch (error) {
-    res.status(500).json({ error: "Failed to create tenant" });
+    console.error("[admin-service] Create tenant error:", error);
+    res.status(500).json({ error: error.message || "Failed to create tenant" });
   }
 });
 
@@ -680,6 +752,47 @@ router.put("/tenants/:id", verifyToken, verifyAdmin, requireSuperadmin, async (r
     res.json({ success: true, message: "Tenant updated" });
   } catch (error) {
     res.status(500).json({ error: "Failed to update tenant" });
+  }
+});
+
+// DELETE /tenants/:id
+router.delete("/tenants/:id", verifyToken, verifyAdmin, requireSuperadmin, async (req, res) => {
+  const tenantId = req.params.id;
+  try {
+    // 1. Find all admins belonging to this tenant
+    const adminsSnapshot = await db.collection("adminUsers").where("tenantId", "==", tenantId).get();
+    
+    // 2. Find all stations belonging to this tenant
+    const stationsSnapshot = await db.collection("stations").where("tenantId", "==", tenantId).get();
+
+    // 3. Process deletions in a batch
+    const batch = db.batch();
+    const revokePromises = [];
+
+    // Delete admins and revoke sessions
+    adminsSnapshot.forEach(doc => {
+      const adminUid = doc.id;
+      batch.delete(doc.ref);
+      revokePromises.push(admin.auth().revokeRefreshTokens(adminUid).catch(e => console.error(`Failed to revoke token for ${adminUid}:`, e)));
+    });
+
+    // Delete stations and their reviews
+    for (const stationDoc of stationsSnapshot.docs) {
+      const reviewsSnap = await stationDoc.ref.collection("reviews").get();
+      reviewsSnap.forEach(r => batch.delete(r.ref));
+      batch.delete(stationDoc.ref);
+    }
+
+    // Delete the tenant document itself
+    batch.delete(db.collection("tenants").doc(tenantId));
+
+    // 4. Execute all deletions and revocations
+    await Promise.all([batch.commit(), ...revokePromises]);
+
+    res.json({ success: true, message: "Tenant, associated admins, and all stations removed successfully" });
+  } catch (error) {
+    console.error("[admin-service] Delete tenant error:", error);
+    res.status(500).json({ error: "Failed to delete tenant and revoke access" });
   }
 });
 
@@ -934,23 +1047,66 @@ router.delete("/team/:uid", verifyToken, verifyAdmin, async (req, res) => {
 // Returns ALL reviews across all stations for moderation
 router.get("/reviews", verifyToken, verifyAdmin, async (req, res) => {
   try {
-    // Collection Group Query: gets 'reviews' subcollection from ANY document
-    // Temporarily removed orderBy to avoid index requirement
-    const snapshot = await db.collectionGroup("reviews").get();
-    
-    const reviews = snapshot.docs.map(doc => {
-      const data = doc.data();
-      // To update/delete, we need the parent station ID
-      // doc.ref.parent.parent.id gives the stationId
-      const stationId = doc.ref.parent.parent.id;
+    let snapshot;
+    let reviews = [];
+
+    if (req.adminRole === "superadmin") {
+      const stationsSnapshot = await db.collection("stations").get();
+      const tenantsSnapshot = await db.collection("tenants").get();
       
-      return {
-        id: doc.id,
-        stationId,
-        ...data,
-        timestamp: data.timestamp?.toDate?.().toISOString() || null,
-      };
-    });
+      const existingTenantIds = new Set(tenantsSnapshot.docs.map(doc => doc.id));
+      const stationsMap = {};
+      
+      stationsSnapshot.forEach(doc => {
+        const sData = doc.data();
+        // A station is valid if it has no tenantId (platform level) or its tenantId exists
+        if (!sData.tenantId || existingTenantIds.has(sData.tenantId)) {
+          stationsMap[doc.id] = sData.tenantId || "platform";
+        }
+      });
+
+      snapshot = await db.collectionGroup("reviews").get();
+      const allReviews = snapshot.docs.map(doc => {
+        const data = doc.data();
+        const stationId = doc.ref.parent.parent.id;
+        return {
+          id: doc.id,
+          stationId,
+          tenantId: stationsMap[stationId] === "platform" ? null : (stationsMap[stationId] || null),
+          ...data,
+          timestamp: data.timestamp?.toDate?.().toISOString() || null,
+        };
+      });
+
+      // Only return reviews for stations that still exist and belong to valid tenants
+      reviews = allReviews.filter(rev => stationsMap[rev.stationId]);
+    } else {
+      if (!req.tenantId) {
+        return res.json({ success: true, reviews: [] });
+      }
+      
+      // 1. Fetch station IDs belonging to the tenant
+      const stationsSnapshot = await db.collection("stations").where("tenantId", "==", req.tenantId).get();
+      const stationIds = stationsSnapshot.docs.map(doc => doc.id);
+
+      if (stationIds.length === 0) {
+        return res.json({ success: true, reviews: [] });
+      }
+
+      // 2. Fetch reviews for each station subcollection
+      const reviewsPromises = stationIds.map(async (sId) => {
+        const revSnap = await db.collection("stations").doc(sId).collection("reviews").get();
+        return revSnap.docs.map(doc => ({
+          id: doc.id,
+          stationId: sId,
+          ...doc.data(),
+          timestamp: doc.data().timestamp?.toDate?.().toISOString() || null,
+        }));
+      });
+
+      const reviewsArrays = await Promise.all(reviewsPromises);
+      reviews = reviewsArrays.flat();
+    }
 
     res.json({ success: true, reviews });
   } catch (error) {
