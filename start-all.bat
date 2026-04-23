@@ -10,6 +10,7 @@ start cmd /k "cd backend\vehicle-service && npm.cmd run dev"
 start cmd /k "cd backend\admin-service && npm.cmd run dev"
 start cmd /k "cd backend\station-service && npm.cmd run dev"
 start cmd /k "cd backend\booking-service && npm.cmd run dev"
+start cmd /k "cd backend\points-service && npm.cmd run dev"
 
 echo wait a bit for backends...
 timeout /t 3 /nobreak >nul

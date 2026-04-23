@@ -53,8 +53,8 @@ const Navbar = () => {
     { label: 'Dashboard', path: '/dashboard', icon: <DashboardIcon fontSize="small" /> },
     { label: 'Stations', path: '/map', icon: <EvStationIcon fontSize="small" /> },
     { label: 'Bookings', path: '/booking', icon: <CalendarMonthIcon fontSize="small" /> },
-    { label: 'Analytics', path: '/analytics', icon: <BarChartIcon fontSize="small" /> },
-    { label: 'Points', path: '/points', icon: <EmojiEventsIcon fontSize="small" /> },
+    { label: 'Rewards', path: '/rewards', icon: <EmojiEventsIcon fontSize="small" /> },
+    { label: 'Points', path: '/points-history', icon: <EmojiEventsIcon fontSize="small" /> },
   ];
 
   const isActive = (path) => location.pathname === path;

@@ -1,6 +1,8 @@
 // backend/station-service/routes/stations.js
+require("dotenv").config();
 const express = require("express");
 const router = express.Router();
+const axios = require("axios");
 const { db, admin } = require("../config/firebase");
 const verifyToken = require("../middleware/verifyToken");
 const verifyOperator = require("../middleware/verifyOperator");
@@ -250,6 +252,20 @@ router.post("/:id/reviews", verifyToken, async (req, res) => {
     };
 
     await stationRef.collection("reviews").doc(reviewId).set(reviewData, { merge: true });
+
+    // Fire-and-forget: review submission points
+    axios.post(
+      `${process.env.POINTS_SERVICE_URL}/api/points/award`,
+      {
+        userId: req.uid,
+        reason: "review_submitted",
+        points: 20,
+        referenceId: stationId,
+        checkDuplicate: true,
+        duplicateKey: `review_${req.uid}_${stationId}`,
+      },
+      { headers: { "x-internal-secret": process.env.INTERNAL_SECRET } }
+    ).catch((err) => console.error("[station-service] Review points failed:", err.message));
     
     // Recalculate average rating immediately (now includes pending/approved logic)
     await updateStationRating(stationId);

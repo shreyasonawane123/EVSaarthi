@@ -32,6 +32,8 @@ const AdminNavbar = () => {
     { path: "/operators", label: "Operators", icon: <GroupIcon fontSize="small" />, exact: false, roles: ["admin", "superadmin"] },
     { path: "/tenants", label: "Tenants", icon: <BusinessIcon fontSize="small" />, exact: false, roles: ["superadmin"] },
     { path: "/team", label: "Team", icon: <GroupIcon fontSize="small" />, exact: false, roles: ["superadmin"] },
+    { path: "/points", label: "Green Points", icon: null, exact: false, roles: ["admin", "superadmin"] },
+    { path: "/operator-points", label: "Green Points", icon: null, exact: false, roles: ["operator"] },
   ];
 
   const navLinks = NAV_LINKS.filter(link => {

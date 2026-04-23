@@ -1,3 +1,11 @@
+// frontend/admin-app/src/context/AuthContext.js
+// ──────────────────────────────────────────────────────────────────────────────
+// RESTORED TO ORIGINAL — This is the critical auth context for the admin-app.
+// It handles two entry flows:
+//   1. Iframe flow: AdminFrame (shell-app) passes ?token=...&name=...&role=...
+//   2. Staff Portal flow: StaffLogin page passes same URL params after direct login
+// Both flows store the token in sessionStorage and call /api/admin/me to verify.
+// ──────────────────────────────────────────────────────────────────────────────
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth } from "../firebase/config";
@@ -6,12 +14,12 @@ const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(null);
-  const [adminRole, setAdminRole]     = useState(null); // "superadmin" | "admin" | null
+  const [adminRole, setAdminRole]     = useState(null);
   const [loading, setLoading]         = useState(true);
 
   useEffect(() => {
-    // 1. Check URL for token, name, and role
-    const params    = new URLSearchParams(window.location.search);
+    // 1. Check URL for token, name, and role (from AdminFrame iframe OR StaffLogin redirect)
+    const params     = new URLSearchParams(window.location.search);
     const tokenParam = params.get("token");
     const nameParam  = params.get("name");
     const roleParam  = params.get("role");
@@ -20,8 +28,7 @@ export const AuthProvider = ({ children }) => {
       sessionStorage.setItem("admin_token", tokenParam);
       sessionStorage.setItem("admin_name",  nameParam ? decodeURIComponent(nameParam) : "Admin");
       sessionStorage.setItem("admin_role",  roleParam || "admin");
-
-      // Clean up URL
+      // Clean up URL so token isn't visible
       window.history.replaceState({}, document.title, window.location.pathname);
     }
 
@@ -30,44 +37,46 @@ export const AuthProvider = ({ children }) => {
     const savedRole  = sessionStorage.getItem("admin_role") || "admin";
 
     const fetchProfile = async (token, baseName, baseRole) => {
-        try {
-            const API = process.env.REACT_APP_API_URL || "http://localhost:5000";
-            const res = await fetch(`${API}/api/admin/me`, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            const data = await res.json();
-            if (data.success) {
-                setCurrentUser({
-                    displayName: data.admin.name || baseName,
-                    uid: data.admin.uid,
-                    tenantId: data.admin.tenantId,
-                    tenantName: data.admin.tenantName,
-                    getIdToken: async () => token,
-                });
-                setAdminRole(data.admin.role);
-                // Update session storage with latest
-                sessionStorage.setItem("admin_role", data.admin.role);
-                sessionStorage.setItem("admin_name", data.admin.name || baseName);
-            } else {
-                // Fallback to minimal user if /me fails
-                setCurrentUser({
-                    displayName: baseName,
-                    uid: "admin",
-                    getIdToken: async () => token,
-                });
-                setAdminRole(baseRole);
-            }
-        } catch (err) {
-            console.error("AuthContext: Profile fetch failed", err);
-            setCurrentUser({
-                displayName: baseName,
-                uid: "admin",
-                getIdToken: async () => token,
-            });
-            setAdminRole(baseRole);
-        } finally {
-            setLoading(false);
+      try {
+        const API = process.env.REACT_APP_API_URL || "http://localhost:5000";
+        const res  = await fetch(`${API}/api/admin/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          setCurrentUser({
+            displayName: data.admin.name || baseName,
+            uid:         data.admin.uid,
+            email:       data.admin.email,
+            tenantId:    data.admin.tenantId,
+            tenantName:  data.admin.tenantName,
+            stationId:   data.admin.stationId,
+            getIdToken:  async () => token,
+          });
+          setAdminRole(data.admin.role);
+          sessionStorage.setItem("admin_role", data.admin.role);
+          sessionStorage.setItem("admin_name", data.admin.name || baseName);
+        } else {
+          // /api/admin/me returned failure — use minimal fallback so page doesn't crash
+          setCurrentUser({
+            displayName: baseName,
+            uid:         "unknown",
+            getIdToken:  async () => token,
+          });
+          setAdminRole(baseRole);
         }
+      } catch (err) {
+        console.error("AuthContext: Profile fetch failed", err);
+        setCurrentUser({
+          displayName: baseName,
+          uid:         "unknown",
+          getIdToken:  async () => token,
+        });
+        setAdminRole(baseRole);
+      } finally {
+        setLoading(false);
+      }
     };
 
     if (savedToken) {
@@ -81,8 +90,10 @@ export const AuthProvider = ({ children }) => {
     sessionStorage.removeItem("admin_token");
     sessionStorage.removeItem("admin_name");
     sessionStorage.removeItem("admin_role");
+    try { await signOut(auth); } catch (_) {}
     setCurrentUser(null);
     setAdminRole(null);
+    window.location.href = "/staff-login";
   };
 
   const value = {
@@ -118,8 +129,6 @@ export const AuthProvider = ({ children }) => {
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error("useAuth must be used inside AuthProvider");
-  }
+  if (!context) throw new Error("useAuth must be used inside AuthProvider");
   return context;
 };

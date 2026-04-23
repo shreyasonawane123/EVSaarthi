@@ -173,4 +173,57 @@ router.delete("/:id", verifyToken, async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/operators/points-request
+// Operators submit a request for approvedPointsPerHour on their station.
+// ─────────────────────────────────────────────────────────────────────────────
+router.post("/points-request", verifyToken, async (req, res) => {
+  const { stationId, pointsPerHour } = req.body;
+
+  if (!stationId || !pointsPerHour) {
+    return res.status(400).json({ error: "stationId and pointsPerHour are required" });
+  }
+
+  try {
+    // Verify that the operator owns this station
+    const operatorDoc = await db.collection("operators").doc(req.uid).get();
+    if (!operatorDoc.exists) {
+      return res.status(403).json({ error: "Operator profile not found" });
+    }
+
+    const operatorData = operatorDoc.data();
+    if (operatorData.stationId !== stationId) {
+      return res.status(403).json({ error: "You do not manage this station" });
+    }
+
+    // Fetch station details for the request doc
+    const stationDoc = await db.collection("stations").doc(stationId).get();
+    if (!stationDoc.exists) {
+      return res.status(404).json({ error: "Station not found" });
+    }
+
+    const station = stationDoc.data();
+    const now = admin.firestore.FieldValue.serverTimestamp();
+
+    const docRef = await db.collection("stationPointsRequests").add({
+      stationId,
+      stationName: station.name || "",
+      operatorId: req.uid,
+      tenantId: operatorData.tenantId || null,
+      pointsPerHour: Number(pointsPerHour),
+      status: "pending",
+      adminNote: "",
+      createdAt: now,
+      reviewedAt: null,
+      reviewedBy: null,
+    });
+
+    res.json({ success: true, requestId: docRef.id });
+  } catch (error) {
+    console.error("[station-service] Points request error:", error.message);
+    res.status(500).json({ error: "Failed to submit points request", details: error.message });
+  }
+});
+
 module.exports = router;
+

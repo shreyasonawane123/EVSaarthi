@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import axios from "axios";
 import cityData from "../data/indianCities.json";
+import ReferralSection from "../components/ReferralSection";
+import ReferralCodeInput from "../components/ReferralCodeInput";
 import {
   Person as PersonIcon,
   Search as SearchIcon,
@@ -45,6 +47,9 @@ const ProfilePage = () => {
   const [savingInfo, setSavingInfo] = useState(false);
   const [savedInfo, setSavedInfo] = useState(false);
   const [errorInfo, setErrorInfo] = useState("");
+  const [isNewUser, setIsNewUser] = useState(false);
+  const [referralCode, setReferralCode] = useState("");
+  const [pointsBalance, setPointsBalance] = useState(0);
 
   // ── Filtered city list for search ──────────────────────────
   const filteredCities =
@@ -75,6 +80,16 @@ const ProfilePage = () => {
           });
         } else {
           setInfoForm((prev) => ({ ...prev, name: currentUser.displayName || "" }));
+          setIsNewUser(true);
+        }
+
+        // Fetch points balance for the sidebar
+        try {
+          const balRes = await axios.get(`${API}/api/points/balance`, { headers: { Authorization: `Bearer ${idToken}` } });
+          setPointsBalance(balRes.data.balance || 0);
+        } catch (e) {
+          // silently handle if points service is down
+          setPointsBalance(0);
         }
       } catch (err) {
         console.error("Fetch error:", err);
@@ -90,9 +105,11 @@ const ProfilePage = () => {
     setSavedInfo(false);
     try {
       const idToken = await currentUser.getIdToken();
-      await axios.post(`${API}/api/user/profile`, infoForm, {
+      await axios.post(`${API}/api/user/profile`, { ...infoForm, referralCode: referralCode || undefined }, {
         headers: { Authorization: `Bearer ${idToken}` },
       });
+      setIsNewUser(false);
+      setReferralCode("");
       setSavedInfo(true);
       setTimeout(() => setSavedInfo(false), 5000);
     } catch (err) {
@@ -169,7 +186,7 @@ const ProfilePage = () => {
           <div className="hidden lg:block space-y-4">
             <AvatarStat label="Account Status" value="Active" color="text-[#16A34A]" />
             <AvatarStat label="Membership Plan" value="Free" color="text-[#16A34A]" />
-            <AvatarStat label="Green Points" value="0 pts" color="text-[#D97706]" />
+            <AvatarStat label="Green Points" value={`${pointsBalance.toLocaleString("en-IN")} pts`} color="text-[#D97706]" />
           </div>
 
           {/* Mobile stats (horizontal row) */}
@@ -186,7 +203,7 @@ const ProfilePage = () => {
              <div className="w-px h-6 bg-gray-100"></div>
              <div className="flex flex-col items-center">
                 <span className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mb-0.5">Points</span>
-                <span className="text-[11px] font-black text-[#D97706]">0 pts</span>
+                <span className="text-[11px] font-black text-[#D97706]">{pointsBalance.toLocaleString("en-IN")} pts</span>
              </div>
           </div>
         </div>
@@ -294,6 +311,20 @@ const ProfilePage = () => {
                 {savingInfo ? "Saving..." : "Save Personal Info"}
               </button>
             </div>
+          </div>
+
+          {/* Referral Code Input (new users only) */}
+          <div className="mt-4">
+            <ReferralCodeInput
+              value={referralCode}
+              onChange={setReferralCode}
+              isNewUser={isNewUser}
+            />
+          </div>
+
+          {/* Referral Section */}
+          <div className="mt-4">
+            <ReferralSection />
           </div>
         </div>
       </div>

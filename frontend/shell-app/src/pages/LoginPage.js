@@ -310,6 +310,20 @@ const LoginPage = () => {
             <p className="text-[11px] text-gray-400 leading-relaxed font-medium">
               By signing in, you agree to our Terms of Service & Privacy Policy.
             </p>
+
+            {/* ── Staff Portal button — ONLY ADDITION TO THIS FILE ── */}
+            <div className="mt-6 pt-5 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => {
+                  const adminUrl = process.env.REACT_APP_ADMIN_URL || "http://localhost:3007";
+                  window.location.href = `${adminUrl}/staff-login`;
+                }}
+                className="w-full py-3 border border-gray-200 rounded-xl text-sm font-bold text-gray-500 hover:text-[#16A34A] hover:border-[#16A34A] transition-all duration-200 flex items-center justify-center gap-2"
+              >
+                Staff Portal Login →
+              </button>
+            </div>
           </div>
         </div>
       </div>

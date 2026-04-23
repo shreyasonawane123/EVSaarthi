@@ -37,6 +37,7 @@ const BOOKING_SERVICE_URL = process.env.BOOKING_SERVICE_URL || "http://localhost
 const ANALYTICS_SERVICE_URL = process.env.ANALYTICS_SERVICE_URL || "http://localhost:5005";
 const VEHICLE_SERVICE_URL = process.env.VEHICLE_SERVICE_URL || "http://localhost:5007";
 const ADMIN_SERVICE_URL   = process.env.ADMIN_SERVICE_URL   || "http://localhost:5006";
+const POINTS_SERVICE_URL  = process.env.POINTS_SERVICE_URL  || "http://localhost:5008";
 
 // ── Proxy helpers ─────────────────────────────────────────────
 const makeProxy = (target, pathRewrite) => {
@@ -84,6 +85,8 @@ app.use("/api/operators", createProxyMiddleware({
   changeOrigin: true 
 }));
 
+app.use("/api/points", makeProxy(POINTS_SERVICE_URL, (path, req) => req.originalUrl));
+
 // ── Gateway health check ────────────────────────────────────────
 app.get("/api/health", (req, res) => {
   res.json({
@@ -100,6 +103,7 @@ app.get("/api/health", (req, res) => {
       "/api/analytics": ANALYTICS_SERVICE_URL,
       "/api/operators": STATION_SERVICE_URL,
       "/api/admin":     ADMIN_SERVICE_URL,
+      "/api/points":    POINTS_SERVICE_URL,
     },
   });
 });
@@ -119,4 +123,5 @@ app.listen(PORT, () => {
   console.log(`   /api/booking   → ${BOOKING_SERVICE_URL} (Week 4)`);
   console.log(`   /api/analytics → ${ANALYTICS_SERVICE_URL} (Week 5)`);
   console.log(`   /api/admin     → ${ADMIN_SERVICE_URL}`);
+  console.log(`   /api/points    → ${POINTS_SERVICE_URL}`);
 });

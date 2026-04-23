@@ -802,39 +802,73 @@ router.get("/team", verifyToken, verifyAdmin, async (req, res) => {
 });
 
 // POST /api/admin/team/add
-// Add a user as admin by email — superadmin only
-// Body: { email: "someone@gmail.com" }
+// Add a user as admin by email (and password) — superadmin only
 router.post("/team/add", verifyToken, verifyAdmin, async (req, res) => {
   if (req.adminRole !== "superadmin") {
     return res.status(403).json({ error: "Superadmin only" });
   }
 
-  const { email } = req.body;
+  const { email, password, tenantId, role } = req.body;
+  const newRole = role === "superadmin" ? "superadmin" : "admin";
+  
   if (!email || !email.trim()) {
     return res.status(400).json({ error: "Email is required" });
   }
 
   try {
-    // Step 1: Find user in users/ collection by email
-    const usersSnapshot = await db
-      .collection("users")
-      .where("email", "==", email.trim().toLowerCase())
-      .get();
+    const emailLower = email.trim().toLowerCase();
+    let uid;
+    let userData = { email: emailLower, name: "Admin" };
 
-    if (usersSnapshot.empty) {
-      return res.status(404).json({
-        error: "User not found. Ask them to login to EV Saarthi first.",
-      });
+    // Step 1: Check if user exists in Firebase Auth
+    try {
+      const userRecord = await admin.auth().getUserByEmail(emailLower);
+      uid = userRecord.uid;
+      userData.name = userRecord.displayName || "Admin";
+      
+      // Update password if one was provided in the UI
+      if (password && password.trim().length >= 6) {
+        await admin.auth().updateUser(uid, { password });
+      }
+    } catch (authErr) {
+      if (authErr.code === "auth/user-not-found") {
+        // User doesn't exist -> Create them!
+        if (!password || password.trim().length < 6) {
+          return res.status(400).json({ error: "User does not exist. A password of at least 6 characters is required to create a new admin." });
+        }
+        
+        const newUser = await admin.auth().createUser({
+          email: emailLower,
+          password: password,
+          displayName: "Admin"
+        });
+        uid = newUser.uid;
+        
+        // Add them to the public users/ collection so they formally exist
+        await db.collection("users").doc(uid).set({
+          name: "Admin",
+          email: emailLower,
+          createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+      } else {
+        throw authErr;
+      }
     }
-
-    const userDoc = usersSnapshot.docs[0];
-    const uid = userDoc.id;
-    const userData = userDoc.data();
 
     // Step 2: Check if already an admin
     const existingAdmin = await db.collection("adminUsers").doc(uid).get();
     if (existingAdmin.exists) {
-      return res.status(400).json({ error: "This person is already an admin" });
+      // If we just provided a password, its updated. If we also provided a role, let's update it if needed.
+      const existingData = existingAdmin.data();
+      if (existingData.role !== newRole) {
+         await db.collection("adminUsers").doc(uid).update({ role: newRole });
+      }
+
+      return res.json({ 
+        success: true, 
+        message: "Admin updated successfully",
+        admin: { uid, email: userData.email, name: userData.name, role: newRole }
+      });
     }
 
     // Step 3: Add to adminUsers/
@@ -842,9 +876,9 @@ router.post("/team/add", verifyToken, verifyAdmin, async (req, res) => {
     const adminData = {
       uid,
       email: userData.email,
-      name: userData.name || "Unknown",
-      role: "admin",
-      tenantId: req.body.tenantId || null,
+      name: userData.name,
+      role: newRole,
+      tenantId: newRole === "superadmin" ? null : (tenantId || null),
       addedBy: req.uid,
       createdAt: now,
     };
@@ -852,8 +886,8 @@ router.post("/team/add", verifyToken, verifyAdmin, async (req, res) => {
 
     res.json({
       success: true,
-      message: "Admin added successfully",
-      admin: { uid, email: userData.email, name: userData.name, role: "admin" },
+      message: "Admin created and added successfully",
+      admin: { uid, email: userData.email, name: userData.name, role: newRole },
     });
   } catch (error) {
     console.error("[admin-service] Add admin error:", error.message);
@@ -1039,6 +1073,115 @@ router.post("/reviews/reject-all", verifyToken, verifyAdmin, async (req, res) =>
   } catch (error) {
     console.error("[admin-service] Bulk reject reviews error:", error.message);
     res.status(500).json({ error: "Failed to bulk reject reviews" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GREEN POINTS ADMIN ROUTES
+// ─────────────────────────────────────────────────────────────────────────────
+
+// GET /api/admin/points/config
+router.get("/points/config", verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    const configDoc = await db.collection("pointsConfig").doc("settings").get();
+    if (!configDoc.exists) {
+      return res.status(404).json({ error: "Points configuration not found" });
+    }
+    res.json({ success: true, config: configDoc.data() });
+  } catch (error) {
+    console.error("[admin-service] Get points config error:", error.message);
+    res.status(500).json({ error: "Failed to fetch points configuration" });
+  }
+});
+
+// POST /api/admin/points/config
+router.post("/points/config", verifyToken, verifyAdmin, requireSuperadmin, async (req, res) => {
+  const { pointValueInRupees, minRedemptionPoints } = req.body;
+  try {
+    const updates = {
+      updatedBy: req.uid,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+    if (pointValueInRupees !== undefined) updates.pointValueInRupees = Number(pointValueInRupees);
+    if (minRedemptionPoints !== undefined) updates.minRedemptionPoints = Number(minRedemptionPoints);
+
+    await db.collection("pointsConfig").doc("settings").update(updates);
+    res.json({ success: true, message: "Points configuration updated" });
+  } catch (error) {
+    console.error("[admin-service] Update points config error:", error.message);
+    res.status(500).json({ error: "Failed to update points configuration" });
+  }
+});
+
+// GET /api/admin/points/station-requests
+router.get("/points/station-requests", verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    let query = db.collection("stationPointsRequests");
+
+    if (req.adminRole === "operator") {
+      query = query.where("operatorId", "==", req.uid);
+    } else if (req.adminRole !== "superadmin") {
+      if (!req.tenantId) return res.json({ success: true, requests: [] });
+      query = query.where("tenantId", "==", req.tenantId);
+    }
+
+    const snapshot = await query.get();
+    let requests = snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+      createdAt: doc.data().createdAt?.toDate?.().toISOString() || null,
+      reviewedAt: doc.data().reviewedAt?.toDate?.().toISOString() || null,
+    }));
+    
+    // In-memory sort to bypass missing composite index errors
+    requests.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+
+    res.json({ success: true, requests });
+  } catch (error) {
+    console.error("[admin-service] Get station requests error:", error.message);
+    res.status(500).json({ error: "Failed to fetch station requests" });
+  }
+});
+
+// PATCH /api/admin/points/station-requests/:id
+router.patch("/points/station-requests/:id", verifyToken, verifyAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { status, adminNote } = req.body;
+
+  if (!status || !["approved", "rejected"].includes(status)) {
+    return res.status(400).json({ error: "status must be 'approved' or 'rejected'" });
+  }
+
+  try {
+    const requestRef = db.collection("stationPointsRequests").doc(id);
+    const requestDoc = await requestRef.get();
+
+    if (!requestDoc.exists) {
+      return res.status(404).json({ error: "Station request not found" });
+    }
+
+    const requestData = requestDoc.data();
+    const now = admin.firestore.FieldValue.serverTimestamp();
+
+    await requestRef.update({
+      status,
+      adminNote: adminNote || "",
+      reviewedBy: req.uid,
+      reviewedAt: now,
+    });
+
+    // If approved, update the station's approvedPointsPerHour
+    if (status === "approved" && requestData.stationId) {
+      await db.collection("stations").doc(requestData.stationId).update({
+        approvedPointsPerHour: requestData.pointsPerHour,
+        updatedAt: now,
+      });
+    }
+
+    res.json({ success: true, message: `Request ${status}` });
+  } catch (error) {
+    console.error("[admin-service] Review station request error:", error.message);
+    res.status(500).json({ error: "Failed to update request" });
   }
 });
 

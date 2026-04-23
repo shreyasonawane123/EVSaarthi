@@ -5,12 +5,16 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { sendPasswordResetEmail } from "firebase/auth";
+import { auth } from "../firebase/config";
 import {
   Group as GroupIcon,
   PersonAdd as PersonAddIcon,
   PersonRemove as PersonRemoveIcon,
   AccountCircle as AccountCircleIcon,
   Email as EmailIcon,
+  Lock as LockIcon,
+  Send as SendIcon,
   Close as CloseIcon,
   CheckCircle as CheckCircleIcon,
   ErrorOutline as ErrorOutlineIcon,
@@ -109,33 +113,38 @@ const ConfirmDialog = ({ admin, onCancel, onConfirm, loading }) => (
 
 // ─── Add Admin Modal ──────────────────────────────────────────────────────────
 const AddAdminModal = ({ onClose, onSuccess, currentUser, tenants }) => {
-  const [email, setEmail]     = useState("");
-  const [tenantId, setTenantId]= useState("none");
-  const [error, setError]     = useState("");
-  const [loading, setLoading] = useState(false);
+  const [email,          setEmail]          = useState("");
+  const [password,       setPassword]       = useState("");
+  const [role,           setRole]           = useState("admin");
+  const [tenantId,       setTenantId]       = useState("none");
+  const [error,          setError]          = useState("");
+  const [loading,        setLoading]        = useState(false);
 
   const handleAdd = async () => {
     setError("");
     const trimmed = email.trim().toLowerCase();
     if (!trimmed) { setError("Please enter an email address."); return; }
-    if (tenants.length > 0 && tenantId === "none") {
-      setError("Please select a tenant organization."); return;
+    if (role === "admin" && tenants.length > 0 && tenantId === "none") {
+      setError("Please select a tenant organization for this Admin."); return;
     }
 
     setLoading(true);
     try {
       const token = await currentUser.getIdToken();
-      const payload = { email: trimmed };
-      if (tenantId !== "none" && tenantId) {
+      const payload = { email: trimmed, role };
+      if (password.trim()) {
+        payload.password = password.trim();
+      }
+      if (role === "admin" && tenantId !== "none" && tenantId) {
         payload.tenantId = tenantId;
       }
 
       const res = await axios.post(`${API}/api/admin/team/add`, payload, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      
+
       if (res.data.success) {
-        onSuccess(res.data.admin?.name || trimmed);
+        onSuccess(trimmed); // Done immediately!
       } else {
         setError(res.data.error || "Something went wrong.");
       }
@@ -165,11 +174,11 @@ const AddAdminModal = ({ onClose, onSuccess, currentUser, tenants }) => {
           <CloseIcon onClick={onClose} style={{ cursor: "pointer", color: "#9CA3AF", fontSize: 22 }} />
         </div>
 
-        <p style={{ margin: "0 0 20px", fontSize: 13, color: "#6B7280", lineHeight: 1.6 }}>
-          The person must have logged in to EV Saarthi at least once before being added as admin.
+        <p style={{ margin: "0 0 16px", fontSize: 13, color: "#6B7280", lineHeight: 1.6 }}>
+          Set a password for the new admin so they can log in via the Staff Portal. If they already have an account, this updates their password.
         </p>
 
-        <div style={{ position: "relative", marginBottom: 16 }}>
+        <div style={{ position: "relative", marginBottom: 12 }}>
           <EmailIcon style={{
             position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)",
             color: "#9CA3AF", fontSize: 20, pointerEvents: "none",
@@ -178,11 +187,10 @@ const AddAdminModal = ({ onClose, onSuccess, currentUser, tenants }) => {
             type="email"
             value={email}
             onChange={(e) => { setEmail(e.target.value); setError(""); }}
-            onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-            placeholder="Enter their email address"
+            placeholder="Email address"
             style={{
               width: "100%", padding: "12px 12px 12px 42px",
-              border: `1.5px solid ${error ? "#FECACA" : "#E5E7EB"}`,
+              border: `1.5px solid ${error && error.includes("Email") ? "#FECACA" : "#E5E7EB"}`,
               borderRadius: 8, fontSize: 14, color: "#1A1A1A",
               outline: "none", boxSizing: "border-box",
             }}
@@ -190,25 +198,59 @@ const AddAdminModal = ({ onClose, onSuccess, currentUser, tenants }) => {
           />
         </div>
 
-        <div style={{ marginBottom: 20 }}>
+        <div style={{ position: "relative", marginBottom: 16 }}>
+          <LockIcon style={{
+            position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)",
+            color: "#9CA3AF", fontSize: 20, pointerEvents: "none",
+          }} />
+          <input
+            type="text"
+            value={password}
+            onChange={(e) => { setPassword(e.target.value); setError(""); }}
+            onKeyDown={(e) => e.key === "Enter" && handleAdd()}
+            placeholder="Password (minimum 6 characters)"
+            style={{
+              width: "100%", padding: "12px 12px 12px 42px",
+              border: `1.5px solid ${error && error.includes("password") ? "#FECACA" : "#E5E7EB"}`,
+              borderRadius: 8, fontSize: 14, color: "#1A1A1A",
+              outline: "none", boxSizing: "border-box",
+            }}
+          />
+        </div>
+
+        <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
           <TextField
             select
             fullWidth
-            label="Assign to Tenant"
-            value={tenantId}
-            onChange={(e) => setTenantId(e.target.value)}
+            label="Role"
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
             size="small"
           >
-            <MenuItem value="none">
-              <em>-- Select Tenant --</em>
-            </MenuItem>
-            {tenants.map(t => (
-              <MenuItem key={t.id} value={t.id}>
-                <BusinessIcon style={{ fontSize: 18, color: '#9CA3AF', marginRight: 8 }} />
-                {t.name}
-              </MenuItem>
-            ))}
+            <MenuItem value="admin">Admin</MenuItem>
+            <MenuItem value="superadmin">Superadmin</MenuItem>
           </TextField>
+
+          {role === "admin" && (
+            <TextField
+              select
+              fullWidth
+              label="Assign to Tenant"
+              value={tenantId}
+              onChange={(e) => setTenantId(e.target.value)}
+              size="small"
+            >
+              <MenuItem value="none">
+                <em>-- Select Tenant --</em>
+              </MenuItem>
+              {tenants.map(t => (
+                <MenuItem key={t.id} value={t.id}>
+                  <BusinessIcon style={{ fontSize: 18, color: '#9CA3AF', marginRight: 8 }} />
+                  {t.name}
+                </MenuItem>
+              ))}
+            </TextField>
+          )}
         </div>
 
         {error && (

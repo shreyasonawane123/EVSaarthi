@@ -1,6 +1,7 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import GreenPointsCard from "../components/GreenPointsCard";
 import {
   EmojiEvents as EmojiEventsIcon,
   Bolt as BoltIcon,
@@ -108,7 +109,13 @@ const DashboardPage = () => {
         </div>
       </div>
 
-      {/* SECTION 2 - STATS GRID */}
+      {/* SECTION 2 - GREEN POINTS CARD */}
+      <div className="space-y-2">
+        <h2 className="text-xl font-black text-[#1A1A1A] px-1">Green Points</h2>
+        <GreenPointsCard />
+      </div>
+
+      {/* SECTION 3 - STATS GRID */}
       <div className="space-y-4">
         <h2 className="text-xl font-black text-[#1A1A1A] px-1">Performance Stats</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

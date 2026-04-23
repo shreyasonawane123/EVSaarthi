@@ -4,11 +4,12 @@ import { useSearchParams } from "react-router-dom";
 import axios from "axios";
 import ReCAPTCHA from "react-google-recaptcha";
 import { useAuth } from "../context/AuthContext";
+import PointsRedemptionToggle from "../components/PointsRedemptionToggle";
 import {
   EvStation, LocationOn, LocalOffer, InfoOutlined, WarningAmber,
   Star as StarIcon, StarBorder as StarBorderIcon, 
   Verified as VerifiedIcon, PhotoCamera as PhotoCameraIcon,
-  RateReview as RateReviewIcon
+  RateReview as RateReviewIcon, EmojiEvents as EmojiEventsIcon
 } from "@mui/icons-material";
 import { 
   Alert, Snackbar, Dialog, DialogTitle, DialogContent, 
@@ -41,6 +42,8 @@ const BookingPage = () => {
   const [timeSlots, setTimeSlots] = useState([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [bookingLoading, setBookingLoading] = useState(false);
+  const [pointsToRedeem, setPointsToRedeem] = useState(0);
+  const [discountAmount, setDiscountAmount] = useState(0);
   
   // ReCAPTCHA State
   const recaptchaRef = useRef(null);
@@ -184,7 +187,8 @@ const BookingPage = () => {
       const orderRes = await axios.post(`${GATEWAY_URL}/api/booking/payment/order`, {
         stationId,
         duration: Number(duration),
-        recaptchaToken: token
+        recaptchaToken: token,
+        pointsToRedeem: pointsToRedeem
       }, config);
 
       const { orderId, amount, currency } = orderRes.data;
@@ -213,6 +217,8 @@ const BookingPage = () => {
             showNotify("Booking Confirmed!", "success");
             setSelectedTime("");
             setDuration("");
+            setPointsToRedeem(0);
+            setDiscountAmount(0);
             setRecaptchaToken(null);
             if (recaptchaRef.current) recaptchaRef.current.reset();
             
@@ -345,6 +351,8 @@ const BookingPage = () => {
   const estimatedCost = duration 
     ? ((Number(duration) / 60) * price).toFixed(2)
     : "0.00";
+
+  const finalCost = Math.max(0, Number(estimatedCost) - discountAmount).toFixed(2);
 
   return (
     <div className="max-w-4xl mx-auto p-4 md:p-8 space-y-8 font-sans">
@@ -490,15 +498,37 @@ const BookingPage = () => {
 
             <hr className="border-gray-100" />
 
+            {/* Points Redemption */}
+            <PointsRedemptionToggle
+              baseCost={Number(estimatedCost)}
+              onRedemptionChange={(pts, discount) => {
+                setPointsToRedeem(pts);
+                setDiscountAmount(discount);
+              }}
+            />
+
             {/* Cost & Submit */}
             <div className="flex flex-col sm:flex-row items-center justify-between gap-6 bg-[#F8FAFC] p-5 rounded-xl border border-blue-50">
               <div>
                 <div className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-1">Estimated Cost</div>
-                <div className="text-3xl font-black text-[#1A1A1A]">₹{estimatedCost}</div>
+                <div className="flex items-end gap-2">
+                  <div className="text-3xl font-black text-[#1A1A1A]">₹{finalCost}</div>
+                  {discountAmount > 0 && (
+                    <div className="text-lg font-bold text-gray-400 line-through mb-1">₹{estimatedCost}</div>
+                  )}
+                </div>
                 <div className="text-xs text-gray-500 mt-1 font-medium flex items-center gap-1">
                   <InfoOutlined style={{ fontSize: 14 }} />
                   Secure payment via Razorpay
                 </div>
+                {duration > 0 && (
+                  <div className="mt-3 bg-green-50 text-green-700 px-3 py-2 rounded-lg border border-green-100 flex items-center gap-2 shadow-sm">
+                    <EmojiEventsIcon sx={{ fontSize: 18 }} />
+                    <span className="text-xs font-black uppercase tracking-wider">
+                      You will earn {Math.round((Number(duration) / 60) * (parseInt(String(station?.approvedPointsPerHour || '50').replace(/[^0-9]/g, '')) || 50))} Green Points
+                    </span>
+                  </div>
+                )}
               </div>
               
               <button

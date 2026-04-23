@@ -1,0 +1,85 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── adminUsers ──────────────────────────────────────────────────────────
+    match /adminUsers/{uid} {
+      allow read, write: if false;
+    }
+
+    // ── operators ───────────────────────────────────────────────────────────
+    match /operators/{uid} {
+      allow read, write: if false;
+    }
+
+    // ── users ────────────────────────────────────────────────────────────────
+    match /users/{userId} {
+      allow read, write: if request.auth != null
+                         && request.auth.uid == userId;
+    }
+
+    // ── stations ────────────────────────────────────────────────────────────
+    match /stations/{stationId} {
+      allow read:  if request.auth != null;
+      allow write: if false;
+    }
+
+    // ── bookings ─────────────────────────────────────────────────────────────
+    match /bookings/{bookingId} {
+      allow read:  if request.auth != null
+                   && request.auth.uid == resource.data.userId;
+      allow write: if false;
+    }
+
+    // ── pointsConfig ─────────────────────────────────────────────────────────
+    // Public read — frontend needs this to show min redemption info.
+    match /pointsConfig/{document} {
+      allow read:  if true;
+      allow write: if false;
+    }
+
+    // ── pointsLedger ─────────────────────────────────────────────────────────
+    match /pointsLedger/{entryId} {
+      allow read:  if request.auth != null
+                   && request.auth.uid == resource.data.userId;
+      allow write: if false;
+    }
+
+    // ── referralCodes ────────────────────────────────────────────────────────
+    match /referralCodes/{code} {
+      allow read:  if request.auth != null;
+      allow write: if false;
+    }
+
+    // ── stationPointsRequests ────────────────────────────────────────────────
+    match /stationPointsRequests/{requestId} {
+      allow read:  if request.auth != null;
+      allow write: if false;
+    }
+
+    // ── accessories ──────────────────────────────────────────────────────────
+    match /accessories/{accessoryId} {
+      allow read:  if request.auth != null;
+      allow write: if false;
+    }
+
+    // ── accessoryOrders ──────────────────────────────────────────────────────
+    match /accessoryOrders/{orderId} {
+      allow read:  if request.auth != null
+                   && request.auth.uid == resource.data.userId;
+      allow write: if false;
+    }
+
+    // ── tenants ──────────────────────────────────────────────────────────────
+    match /tenants/{tenantId} {
+      allow read, write: if false;
+    }
+
+    // ── Default: deny all other collections ─────────────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
+
