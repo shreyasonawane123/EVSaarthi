@@ -23,6 +23,15 @@ const LoginPage = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [showStaffLogin, setShowStaffLogin] = useState(false);
+  
+  // Referral System State
+  const [showReferralModal, setShowReferralModal] = useState(false);
+  const [newUserData, setNewUserData] = useState(null); // { user, token }
+  const [referralCode, setReferralCode] = useState('');
+  const [referralLoading, setReferralLoading] = useState(false);
+  const [referralError, setReferralError] = useState('');
+  const [checkingProfile, setCheckingProfile] = useState(false);
+  
   const { isLoggedIn } = useAuth();
   const navigate = useNavigate();
 
@@ -62,19 +71,99 @@ const LoginPage = () => {
   };
 
   useEffect(() => {
-    if (isLoggedIn) navigate("/dashboard");
-  }, [isLoggedIn, navigate]);
+    // Only auto-navigate if:
+    // 1. User is logged in
+    // 2. We are NOT currently checking if they are a new user
+    // 3. We are NOT showing the referral modal
+    if (isLoggedIn && !checkingProfile && !showReferralModal && !newUserData) {
+      navigate("/dashboard");
+    }
+  }, [isLoggedIn, navigate, showReferralModal, newUserData, checkingProfile]);
+
+  const syncProfile = async (user, token, refCode) => {
+    try {
+      await axios.post(`${API}/api/user/profile`, {
+        name: user.displayName || '',
+        email: user.email || '',
+        photoURL: user.photoURL || '',
+        referralCode: refCode.trim().toUpperCase()
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+    } catch (e) {
+      console.error("Profile sync error:", e);
+    }
+  };
 
   const handleGoogleLogin = async () => {
     setLoading(true);
+    setCheckingProfile(true); // START CHECKING
     setError("");
     try {
       const result = await signInWithPopup(auth, googleProvider);
-      await handleRedirect(result.user);
+      const user = result.user;
+      const token = await user.getIdToken();
+
+      // Check if user is new or existing
+      try {
+        const profileRes = await axios.get(`${API}/api/user/profile`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+
+        if (profileRes.status === 200) {
+          // EXISTING USER → sync profile silently, go to dashboard
+          await syncProfile(user, token, '');
+          await handleRedirect(user);
+          setCheckingProfile(false); // FINISHED
+        }
+      } catch (err) {
+        if (err.response && err.response.status === 404) {
+          // NEW USER → show referral modal
+          setNewUserData({ user, token });
+          setShowReferralModal(true);
+          setLoading(false); 
+          setCheckingProfile(false); // FINISHED (modal will handle the rest)
+          return;
+        } else {
+          setCheckingProfile(false);
+          throw err;
+        }
+      }
     } catch (err) {
       console.error("Google Login error:", err);
       setError("Google login failed. Please try again.");
       setLoading(false);
+      setCheckingProfile(false);
+    }
+  };
+
+  const handleReferralContinue = async () => {
+    setReferralLoading(true);
+    setReferralError('');
+    try {
+      const { user, token } = newUserData;
+      await syncProfile(user, token, referralCode);
+      setShowReferralModal(false);
+      await handleRedirect(user);
+    } catch (err) {
+      setReferralError('Something went wrong. Please try again.');
+    } finally {
+      setReferralLoading(false);
+    }
+  };
+
+  const handleReferralSkip = async () => {
+    setReferralCode('');
+    setReferralLoading(true);
+    try {
+      const { user, token } = newUserData;
+      await syncProfile(user, token, '');
+      setShowReferralModal(false);
+      await handleRedirect(user);
+    } catch (err) {
+      setReferralError('Something went wrong. Please try again.');
+    } finally {
+      setReferralLoading(false);
     }
   };
 
@@ -311,7 +400,7 @@ const LoginPage = () => {
               By signing in, you agree to our Terms of Service & Privacy Policy.
             </p>
 
-            {/* ── Staff Portal button — ONLY ADDITION TO THIS FILE ── */}
+            {/* ── Staff Portal button ── */}
             <div className="mt-6 pt-5 border-t border-gray-100">
               <button
                 type="button"
@@ -327,6 +416,89 @@ const LoginPage = () => {
           </div>
         </div>
       </div>
+
+      {/* REFERRAL MODAL */}
+      {showReferralModal && (
+        <div style={{
+          position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 1000, padding: '20px'
+        }}>
+          <div style={{
+            backgroundColor: '#fff', borderRadius: '24px', padding: '32px',
+            width: '100%', maxWidth: '420px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)',
+            textAlign: 'center'
+          }}>
+            {/* Header */}
+            <div style={{ fontSize: '48px', marginBottom: '16px' }}>🎁</div>
+            <h2 style={{ fontSize: '24px', fontWeight: '900', color: '#111', marginBottom: '8px' }}>
+              You're Almost In!
+            </h2>
+            <p style={{ color: '#666', fontSize: '15px', marginBottom: '24px', lineHeight: '1.6' }}>
+              Got a referral code from a friend?<br />
+              <strong style={{ color: '#16a34a' }}>They'll earn 200 Green Points</strong> when you join!
+            </p>
+
+            {/* Input */}
+            <input
+              type="text"
+              placeholder="e.g. EV-ABC123"
+              value={referralCode}
+              onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
+              maxLength={12}
+              style={{
+                width: '100%', padding: '14px 16px', fontSize: '18px', letterSpacing: '2px',
+                border: '2px solid #DCFCE7', borderRadius: '14px', outline: 'none',
+                textAlign: 'center', fontWeight: '800', color: '#16a34a',
+                boxSizing: 'border-box', marginBottom: '12px',
+                transition: 'all 0.2s'
+              }}
+              onFocus={(e) => e.target.style.borderColor = '#16a34a'}
+              onBlur={(e) => e.target.style.borderColor = '#DCFCE7'}
+            />
+
+            {/* Info text */}
+            <p style={{ color: '#999', fontSize: '13px', marginBottom: '24px' }}>
+              You'll earn <strong>100 Green Points</strong> just for joining — no code needed!
+            </p>
+
+            {/* Error */}
+            {referralError && (
+              <p style={{ color: '#dc2626', fontSize: '13px', marginBottom: '16px', fontWeight: '700' }}>
+                {referralError}
+              </p>
+            )}
+
+            {/* Buttons */}
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button
+                onClick={handleReferralSkip}
+                disabled={referralLoading}
+                style={{
+                  flex: 1, padding: '14px', borderRadius: '14px', border: '2px solid #F3F4F6',
+                  backgroundColor: '#fff', color: '#6B7280', fontSize: '15px',
+                  fontWeight: '700', cursor: 'pointer', transition: 'all 0.2s'
+                }}
+              >
+                Skip
+              </button>
+              <button
+                onClick={handleReferralContinue}
+                disabled={referralLoading}
+                style={{
+                  flex: 2, padding: '14px', borderRadius: '14px', border: 'none',
+                  backgroundColor: '#16a34a', color: '#fff', fontSize: '15px',
+                  fontWeight: '800', cursor: 'pointer', transition: 'all 0.2s',
+                  boxShadow: '0 10px 15px -3px rgba(22, 163, 74, 0.2)',
+                  opacity: referralLoading ? 0.7 : 1
+                }}
+              >
+                {referralLoading ? 'Setting up...' : 'Continue →'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
