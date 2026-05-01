@@ -113,12 +113,12 @@ const ConfirmDialog = ({ admin, onCancel, onConfirm, loading }) => (
 
 // ─── Add Admin Modal ──────────────────────────────────────────────────────────
 const AddAdminModal = ({ onClose, onSuccess, currentUser, tenants }) => {
-  const [email,          setEmail]          = useState("");
-  const [password,       setPassword]       = useState("");
-  const [role,           setRole]           = useState("admin");
-  const [tenantId,       setTenantId]       = useState("none");
-  const [error,          setError]          = useState("");
-  const [loading,        setLoading]        = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [role, setRole] = useState("admin");
+  const [tenantId, setTenantId] = useState("none");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const handleAdd = async () => {
     setError("");
@@ -289,7 +289,7 @@ const AddAdminModal = ({ onClose, onSuccess, currentUser, tenants }) => {
 const RoleBadge = ({ role }) => (
   <span style={{
     background: role === "superadmin" ? "#F5F3FF" : "#F0FDF4",
-    color:      role === "superadmin" ? "#7C3AED"  : "#16A34A",
+    color: role === "superadmin" ? "#7C3AED" : "#16A34A",
     fontSize: 11, fontWeight: 700,
     padding: "3px 10px", borderRadius: 20,
   }}>
@@ -302,13 +302,14 @@ const TeamPage = () => {
   const { currentUser, adminRole } = useAuth();
   const navigate = useNavigate();
 
-  const [admins, setAdmins]               = useState([]);
-  const [tenants, setTenants]             = useState([]);
-  const [fetching, setFetching]           = useState(true);
-  const [showModal, setShowModal]         = useState(false);
-  const [removeTarget, setRemoveTarget]   = useState(null);
+  const [admins, setAdmins] = useState([]);
+  const [tenants, setTenants] = useState([]);
+  const [visibleCount, setVisibleCount] = useState(10);
+  const [fetching, setFetching] = useState(true);
+  const [showModal, setShowModal] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState(null);
   const [removeLoading, setRemoveLoading] = useState(false);
-  const [toast, setToast]                 = useState(null);
+  const [toast, setToast] = useState(null);
 
   useEffect(() => {
     if (adminRole && adminRole !== "superadmin") {
@@ -325,12 +326,12 @@ const TeamPage = () => {
     setFetching(true);
     try {
       const token = await getToken();
-      
+
       const [adminsRes, tenantsRes] = await Promise.all([
         axios.get(`${API}/api/admin/team`, { headers: { Authorization: `Bearer ${token}` } }),
         axios.get(`${API}/api/admin/tenants`, { headers: { Authorization: `Bearer ${token}` } })
       ]);
-      
+
       if (adminsRes.data.success) {
         setAdmins(adminsRes.data.admins);
       } else {
@@ -428,81 +429,97 @@ const TeamPage = () => {
           boxShadow: "0 2px 12px rgba(0,0,0,0.06)", overflow: "hidden",
         }}>
           <div style={{ overflowX: "auto", width: "100%" }}>
-          {fetching ? (
-            <div style={{ padding: 64, display: "flex", alignItems: "center", justifyContent: "center", gap: 16 }}>
-              <CircularProgress style={{ color: "#EAB308" }} size={28} />
-              <span style={{ color: "#6B7280", fontSize: 14 }}>Loading team...</span>
-            </div>
-          ) : (
-            <table style={{ width: "100%", minWidth: "800px", borderCollapse: "collapse", whiteSpace: "nowrap" }}>
-              <thead>
-                <tr style={{ background: "#F9FAFB", borderBottom: "2px solid #E5E7EB" }}>
-                  {["Member", "Email", "Tenant", "Role", "Added On", "Actions"].map((h) => (
-                    <th key={h} style={{
-                      padding: "12px 16px", textAlign: "left",
-                      fontSize: 11, fontWeight: 700, color: "#6B7280",
-                      textTransform: "uppercase", letterSpacing: "0.05em",
-                    }}>
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {admins.map((a, i) => {
-                  const isYou = a.name === currentUser?.displayName;
-                  return (
-                    <tr
-                      key={a.uid}
-                      style={{ borderBottom: i < admins.length - 1 ? "1px solid #F3F4F6" : "none" }}
-                    >
-                      <td style={{ padding: "14px 16px" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                          <AccountCircleIcon style={{ fontSize: 38, color: "#D1D5DB" }} />
-                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <span style={{ fontSize: 14, fontWeight: 700, color: "#1A1A1A" }}>
-                              {a.name || "Unknown"}
-                            </span>
-                            {isYou && (
-                              <span style={{
-                                background: "#EFF6FF", color: "#2563EB",
-                                fontSize: 10, fontWeight: 700,
-                                padding: "1px 8px", borderRadius: 20,
-                              }}>
-                                You
+            {fetching ? (
+              <div style={{ padding: 64, display: "flex", alignItems: "center", justifyContent: "center", gap: 16 }}>
+                <CircularProgress style={{ color: "#EAB308" }} size={28} />
+                <span style={{ color: "#6B7280", fontSize: 14 }}>Loading team...</span>
+              </div>
+            ) : (
+              <table style={{ width: "100%", minWidth: "800px", borderCollapse: "collapse", whiteSpace: "nowrap" }}>
+                <thead>
+                  <tr style={{ background: "#F9FAFB", borderBottom: "2px solid #E5E7EB" }}>
+                    {["Member", "Email", "Tenant", "Role", "Added On", "Actions"].map((h) => (
+                      <th key={h} style={{
+                        padding: "12px 16px", textAlign: "left",
+                        fontSize: 11, fontWeight: 700, color: "#6B7280",
+                        textTransform: "uppercase", letterSpacing: "0.05em",
+                      }}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {admins.slice(0, visibleCount).map((a, i) => {
+                    const isYou = a.name === currentUser?.displayName;
+                    return (
+                      <tr
+                        key={a.uid}
+                        style={{ borderBottom: i < admins.length - 1 ? "1px solid #F3F4F6" : "none" }}
+                      >
+                        <td style={{ padding: "14px 16px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <AccountCircleIcon style={{ fontSize: 38, color: "#D1D5DB" }} />
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <span style={{ fontSize: 14, fontWeight: 700, color: "#1A1A1A" }}>
+                                {a.name || "Unknown"}
                               </span>
-                            )}
+                              {isYou && (
+                                <span style={{
+                                  background: "#EFF6FF", color: "#2563EB",
+                                  fontSize: 10, fontWeight: 700,
+                                  padding: "1px 8px", borderRadius: 20,
+                                }}>
+                                  You
+                                </span>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      </td>
-                      <td style={{ padding: "14px 16px", fontSize: 13, color: "#374151" }}>{a.email}</td>
-                      <td style={{ padding: "14px 16px", fontSize: 13, fontWeight: 600, color: a.tenantId ? "#1A1A1A" : "#D1D5DB" }}>
-                        {a.tenantId ? (tenants.find(t => t.id === a.tenantId)?.name || "Unknown") : "—"}
-                      </td>
-                      <td style={{ padding: "14px 16px" }}><RoleBadge role={a.role} /></td>
-                      <td style={{ padding: "14px 16px", fontSize: 13, color: "#6B7280" }}>{fmtDate(a.createdAt)}</td>
-                      <td style={{ padding: "14px 16px" }}>
-                        {a.role === "admin" && !isYou ? (
-                          <button
-                            onClick={() => setRemoveTarget(a)}
-                            style={{
-                              padding: "7px 12px", border: "1.5px solid #FECACA",
-                              borderRadius: 8, background: "#FEF2F2",
-                              color: "#DC2626", fontSize: 12, fontWeight: 700,
-                              cursor: "pointer",
-                            }}
-                          >
-                            <PersonRemoveIcon fontSize="small" /> Remove
-                          </button>
-                        ) : "—"}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
+                        </td>
+                        <td style={{ padding: "14px 16px", fontSize: 13, color: "#374151" }}>{a.email}</td>
+                        <td style={{ padding: "14px 16px", fontSize: 13, fontWeight: 600, color: a.tenantId ? "#1A1A1A" : "#D1D5DB" }}>
+                          {a.tenantId ? (tenants.find(t => t.id === a.tenantId)?.name || "Unknown") : "—"}
+                        </td>
+                        <td style={{ padding: "14px 16px" }}><RoleBadge role={a.role} /></td>
+                        <td style={{ padding: "14px 16px", fontSize: 13, color: "#6B7280" }}>{fmtDate(a.createdAt)}</td>
+                        <td style={{ padding: "14px 16px" }}>
+                          {a.role === "admin" && !isYou ? (
+                            <button
+                              onClick={() => setRemoveTarget(a)}
+                              style={{
+                                padding: "7px 12px", border: "1.5px solid #FECACA",
+                                borderRadius: 8, background: "#FEF2F2",
+                                color: "#DC2626", fontSize: 12, fontWeight: 700,
+                                cursor: "pointer",
+                              }}
+                            >
+                              <PersonRemoveIcon fontSize="small" /> Remove
+                            </button>
+                          ) : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
           </div>
+          {!fetching && admins.length > visibleCount && (
+            <div style={{ padding: "16px", textAlign: "center", borderTop: "1px solid #F3F4F6", background: "#F9FAFB" }}>
+              <button
+                onClick={() => setVisibleCount(v => v + 10)}
+                style={{
+                  padding: "8px 24px", background: "#fff", border: "1px solid #E5E7EB",
+                  borderRadius: "20px", fontSize: "13px", fontWeight: "600",
+                  color: "#374151", cursor: "pointer", transition: "all 0.2s"
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "#F3F4F6"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "#fff"; }}
+              >
+                Load More
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

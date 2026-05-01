@@ -14,6 +14,7 @@ import {
   Lock as LockIcon,
   Nature as NatureIcon
 } from '@mui/icons-material';
+import ReCAPTCHA from "react-google-recaptcha";
 
 const API = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
@@ -31,6 +32,10 @@ const LoginPage = () => {
   const [referralLoading, setReferralLoading] = useState(false);
   const [referralError, setReferralError] = useState('');
   const [checkingProfile, setCheckingProfile] = useState(false);
+
+  // CAPTCHA state
+  const [recaptchaToken, setRecaptchaToken] = useState(null);
+  const recaptchaRef = React.useRef(null);
   
   const { isLoggedIn } = useAuth();
   const navigate = useNavigate();
@@ -96,6 +101,10 @@ const LoginPage = () => {
   };
 
   const handleGoogleLogin = async () => {
+    if (!recaptchaToken) {
+      setError("Please complete the reCAPTCHA security check.");
+      return;
+    }
     setLoading(true);
     setCheckingProfile(true); // START CHECKING
     setError("");
@@ -350,6 +359,18 @@ const LoginPage = () => {
             )}
 
             <div className="space-y-4">
+              {/* ReCAPTCHA */}
+              <div className="flex justify-center mb-4">
+                <ReCAPTCHA
+                  ref={recaptchaRef}
+                  sitekey={process.env.REACT_APP_RECAPTCHA_SITE_KEY || "6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI"}
+                  onChange={(token) => {
+                    setRecaptchaToken(token);
+                    if (token) setError("");
+                  }}
+                />
+              </div>
+
               {/* Google Button */}
               <button
                 onClick={handleGoogleLogin}

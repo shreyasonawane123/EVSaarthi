@@ -8,6 +8,7 @@ import ProtectedRoute from "./components/ProtectedRoute";
 
 // Pages
 import LoginPage from "./pages/LoginPage";
+import LandingPage from "./pages/LandingPage";
 import DashboardPage from "./pages/DashboardPage";
 import ProfilePage from "./pages/ProfilePage";
 import VehiclePage from "./pages/VehiclePage";
@@ -32,6 +33,7 @@ function App() {
           <main className="flex-grow">
             <Routes>
               {/* Public */}
+              <Route path="/" element={<LandingPage />} />
               <Route path="/login" element={<LoginPage />} />
 
               {/* Protected */}
@@ -47,9 +49,6 @@ function App() {
 
               {/* Admin Panel (Standalone App) */}
               <Route path="/admin/*" element={<AdminFrame />} />
-
-              {/* Default */}
-              <Route path="/" element={<Navigate to="/dashboard" replace />} />
 
               {/* 404 */}
               <Route path="*" element={<NotFoundPage />} />

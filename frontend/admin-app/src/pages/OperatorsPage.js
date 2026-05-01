@@ -201,6 +201,7 @@ const OperatorsPage = () => {
   const [availableStations, setAvailableStations] = useState([]);
   const [tenants, setTenants]               = useState([]);
   const [fetching, setFetching]             = useState(true);
+  const [visibleCount, setVisibleCount]     = useState(10);
   const [showModal, setShowModal]           = useState(false);
   const [editingOperator, setEditingOperator]= useState(null);
   const [toast, setToast]                   = useState(null);
@@ -297,7 +298,8 @@ const OperatorsPage = () => {
               style={{
                 padding: "11px 20px", background: "#EAB308", border: "none",
                 borderRadius: 8, fontSize: 14, fontWeight: 700, color: "#1A1A1A",
-                cursor: "pointer", display: "flex", alignItems: "center", gap: 8
+                cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                width: window.innerWidth < 1024 ? "100%" : "auto"
               }}
             >
               <PersonAddIcon fontSize="small" /> Add Operator
@@ -341,7 +343,7 @@ const OperatorsPage = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {operators.map((op, i) => (
+                  {operators.slice(0, visibleCount).map((op, i) => (
                     <tr
                       key={op.id}
                       style={{ borderBottom: i < operators.length - 1 ? "1px solid #F3F4F6" : "none" }}
@@ -400,6 +402,22 @@ const OperatorsPage = () => {
               </table>
             )}
           </div>
+          {!fetching && operators.length > visibleCount && (
+            <div style={{ padding: "16px", textAlign: "center", borderTop: "1px solid #F3F4F6", background: "#F9FAFB" }}>
+              <button
+                onClick={() => setVisibleCount(v => v + 10)}
+                style={{
+                  padding: "8px 24px", background: "#fff", border: "1px solid #E5E7EB",
+                  borderRadius: "20px", fontSize: "13px", fontWeight: "600",
+                  color: "#374151", cursor: "pointer", transition: "all 0.2s"
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "#F3F4F6"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "#fff"; }}
+              >
+                Load More
+              </button>
+            </div>
+          )}
         </div>
 
       </div>

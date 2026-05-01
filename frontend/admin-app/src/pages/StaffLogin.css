@@ -17,7 +17,7 @@ body {
 /* ── Page shell ─────────────────────────────────────────────────────────────── */
 .staff-login-page {
   min-height: 100vh;
-  background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f2318 100%);
+  background: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -26,34 +26,11 @@ body {
   overflow: hidden;
 }
 
-/* Ambient glow blobs */
-.staff-login-page::before {
-  content: '';
-  position: absolute;
-  top: -120px;
-  left: -120px;
-  width: 420px;
-  height: 420px;
-  background: radial-gradient(circle, rgba(22, 163, 74, 0.18) 0%, transparent 70%);
-  border-radius: 50%;
-  pointer-events: none;
-}
-
-.staff-login-page::after {
-  content: '';
-  position: absolute;
-  bottom: -100px;
-  right: -100px;
-  width: 380px;
-  height: 380px;
-  background: radial-gradient(circle, rgba(234, 179, 8, 0.10) 0%, transparent 70%);
-  border-radius: 50%;
-  pointer-events: none;
-}
+/* Removed ambient glow blobs */
 
 /* ── Card ───────────────────────────────────────────────────────────────────── */
 .staff-login-card {
-  background: rgba(255, 255, 255, 0.04);
+  background: #000000;
   border: 1px solid rgba(255, 255, 255, 0.10);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);

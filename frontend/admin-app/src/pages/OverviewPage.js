@@ -24,6 +24,7 @@ const OverviewPage = () => {
   const [recentStations, setRecentStations] = useState([]);
   const [allStations, setAllStations] = useState([]);
   const [tenants, setTenants] = useState([]);
+  const [walletBalance, setWalletBalance] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -57,6 +58,16 @@ const OverviewPage = () => {
           setTenants(tenantsRes.data.tenants);
         }
       }
+
+      // Fetch wallet balance for admins
+      if (adminRole === "admin") {
+        try {
+          const walletRes = await axios.get(`${API_GATEWAY}/api/admin/points/wallet`, { headers });
+          if (walletRes.data.success && walletRes.data.wallet) {
+            setWalletBalance(walletRes.data.wallet.availablePoints || 0);
+          }
+        } catch (e) { /* wallet may not exist */ }
+      }
     } catch (error) {
       console.error("Failed to fetch overview data", error);
     } finally {
@@ -69,6 +80,7 @@ const OverviewPage = () => {
     { id: 'stations', label: "Total Stations", value: stats.totalStations, icon: <EvStationIcon className="text-green-500 !text-3xl" />, bg: "bg-[#F0FDF4]" },
     { id: 'active', label: "Active Stations", value: stats.activeStations, icon: <CheckCircleIcon className="text-yellow-600 !text-3xl" />, bg: "bg-[#FFFBEB]" },
     { id: 'vehicles', label: "Registered Vehicles", value: stats.totalVehicles, icon: <DirectionsCarIcon className="text-purple-500 !text-3xl" />, bg: "bg-[#F5F3FF]", roles: ["superadmin"] },
+    ...(walletBalance !== null ? [{ id: 'wallet', label: "Green Points Balance", value: walletBalance, icon: <CheckCircleIcon className="text-green-600 !text-3xl" />, bg: "bg-[#F0FDF4]", roles: ["admin"] }] : []),
   ].filter(card => !card.roles || card.roles.includes(adminRole));
 
   if (loading) {
@@ -116,7 +128,7 @@ const OverviewPage = () => {
             {tenants.map(tenant => {
               const tenantStations = allStations.filter(s => s.tenantId === tenant.id);
               const activeCount = tenantStations.filter(s => s.isActive).length;
-              
+
               return (
                 <div key={tenant.id} className="bg-white rounded-xl p-5 border border-gray-100 shadow-sm space-y-3">
                   <div className="flex items-center justify-between border-b border-gray-50 pb-3">
@@ -127,7 +139,7 @@ const OverviewPage = () => {
                       Tenant ID: {tenant.id.slice(0, 5)}
                     </span>
                   </div>
-                  
+
                   <div className="grid grid-cols-2 gap-4">
                     <div className="bg-[#F9FAFB] p-3 rounded-lg border border-gray-50">
                       <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Total</p>
@@ -149,14 +161,14 @@ const OverviewPage = () => {
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="flex items-center justify-between p-6 border-b border-gray-100 bg-[#F9FAFB]">
           <h2 className="text-lg font-bold text-[#1A1A1A]">Recent Stations</h2>
-          <button 
+          <button
             onClick={() => navigate('/admin/stations')}
             className="text-sm font-bold text-[#EAB308] hover:text-[#D97706] flex items-center gap-1"
           >
             View All <ArrowForwardIcon fontSize="small" />
           </button>
         </div>
-        
+
         <div className="overflow-x-auto">
           <table className="w-full min-w-[600px] whitespace-nowrap text-left border-collapse">
             <thead>
@@ -181,12 +193,11 @@ const OverviewPage = () => {
                       {station.availableSlots} <span className="text-gray-400 font-normal">/ {station.totalSlots}</span>
                     </td>
                     <td className="p-4">
-                      <span className={`px-3 py-1 text-xs font-bold rounded-full ${
-                        station.status === 'open' ? 'bg-[#F0FDF4] text-[#16A34A]' :
-                        station.status === 'filling' ? 'bg-[#FFFBEB] text-[#D97706]' :
-                        station.status === 'maintenance' ? 'bg-[#F5F5F5] text-gray-500' :
-                        'bg-[#FEF2F2] text-[#DC2626]'
-                      }`}>
+                      <span className={`px-3 py-1 text-xs font-bold rounded-full ${station.status === 'open' ? 'bg-[#F0FDF4] text-[#16A34A]' :
+                          station.status === 'filling' ? 'bg-[#FFFBEB] text-[#D97706]' :
+                            station.status === 'maintenance' ? 'bg-[#F5F5F5] text-gray-500' :
+                              'bg-[#FEF2F2] text-[#DC2626]'
+                        }`}>
                         {station.status.toUpperCase()}
                       </span>
                     </td>

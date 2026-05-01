@@ -401,17 +401,9 @@ const MapPage = () => {
 
 
   return (
-    <div style={{ height: "calc(100vh - 64px)", display: "flex" }}>
+    <div className="map-layout">
       {/* SIDEBAR */}
-      <div
-        style={{
-          width: 340,
-          background: "#fff",
-          borderRight: "1px solid #E5E7EB",
-          display: "flex",
-          flexDirection: "column",
-        }}
-      >
+      <div className="sidebar-container">
         <div style={{ padding: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <EvStationIcon style={{ color: "#EAB308" }} />
@@ -593,12 +585,7 @@ const MapPage = () => {
       </div>
 
       {/* MAP */}
-      <div style={{
-        flex: 1,
-        position: "relative",
-        overflow: "hidden",
-        height: "calc(100vh - 64px)",
-      }}>
+      <div className="map-container-wrap">
         {loading && (
           <div
             style={{

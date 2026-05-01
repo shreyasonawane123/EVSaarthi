@@ -63,7 +63,9 @@ async function updateStationRating(stationId) {
       totalRating += (doc.data().rating || 0);
     });
 
-    const averageRating = Number((totalRating / count).toFixed(1));
+    const rawAverage = totalRating / count;
+    // Round to nearest 0.5 (e.g., 3.7 → 3.5, 4.3 → 4.5)
+    const averageRating = Math.round(rawAverage * 2) / 2;
     await db.collection("stations").doc(stationId).update({ rating: averageRating });
     console.log(`[station-service] Updated station ${stationId} rating to ${averageRating}`);
   } catch (error) {
@@ -198,7 +200,7 @@ router.get("/:id/reviews", async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/stations/:id/reviews
-// Submits a new review (pending moderation)
+// Submits a new review — requires a completed booking (one review per booking)
 // ─────────────────────────────────────────────────────────────────────────────
 router.post("/:id/reviews", verifyToken, async (req, res) => {
   const { rating, text, photoUrl, userLat, userLng, bookingId } = req.body;
@@ -207,14 +209,37 @@ router.post("/:id/reviews", verifyToken, async (req, res) => {
   if (!rating || !text) {
     return res.status(400).json({ error: "Rating and text are required" });
   }
+  if (!bookingId) {
+    return res.status(400).json({ error: "A completed booking is required to submit a review" });
+  }
 
   try {
     const stationRef = db.collection("stations").doc(stationId);
     const stationDoc = await stationRef.get();
     if (!stationDoc.exists) return res.status(404).json({ error: "Station not found" });
 
+    // Verify booking: must belong to this user, this station, and be confirmed
+    const bookingDoc = await db.collection("bookings").doc(bookingId).get();
+    if (!bookingDoc.exists) {
+      return res.status(400).json({ error: "Booking not found" });
+    }
+    const booking = bookingDoc.data();
+    if (booking.userId !== req.uid) {
+      return res.status(403).json({ error: "This booking does not belong to you" });
+    }
+    if (booking.stationId !== stationId) {
+      return res.status(400).json({ error: "Booking does not match this station" });
+    }
+    if (booking.status !== "confirmed") {
+      return res.status(400).json({ error: "Only confirmed (completed) bookings can be reviewed" });
+    }
+    // Check if already reviewed
+    if (booking.reviewSubmitted) {
+      return res.status(400).json({ error: "You have already submitted a review for this booking" });
+    }
+
     // GPS Verified logic (200m = 0.2km)
-    let verifiedVisit = false;
+    let verifiedVisit = true; // Booking-verified since we validated above
     if (userLat && userLng) {
       const station = stationDoc.data();
       if (station.lat && station.lng) {
@@ -223,21 +248,10 @@ router.post("/:id/reviews", verifyToken, async (req, res) => {
       }
     }
 
-    // Booking Verified logic
-    if (!verifiedVisit) {
-      const bookingSnapshot = await db.collection("bookings")
-        .where("userId", "==", req.uid)
-        .where("stationId", "==", stationId)
-        .where("status", "==", "confirmed")
-        .limit(1)
-        .get();
-      
-      if (!bookingSnapshot.empty) verifiedVisit = true;
-    }
-
     const autoApprove = stationDoc.data().autoApproveReviews || false;
 
-    const reviewId = req.uid; // One review per user per station
+    // Use bookingId as review doc ID → guarantees one review per booking
+    const reviewId = bookingId;
     const reviewData = {
       userId: req.uid,
       userName: req.email?.split('@')[0] || "User",
@@ -245,15 +259,18 @@ router.post("/:id/reviews", verifyToken, async (req, res) => {
       text,
       photoUrl: photoUrl || null,
       verifiedVisit,
-      bookingId: bookingId || null,
+      bookingId,
       status: autoApprove ? "approved" : "pending",
       timestamp: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
 
-    await stationRef.collection("reviews").doc(reviewId).set(reviewData, { merge: true });
+    await stationRef.collection("reviews").doc(reviewId).set(reviewData);
 
-    // Fire-and-forget: review submission points
+    // Mark the booking as reviewed so it can't be reviewed again
+    await db.collection("bookings").doc(bookingId).update({ reviewSubmitted: true });
+
+    // Fire-and-forget: review submission points (unique per booking)
     axios.post(
       `${process.env.POINTS_SERVICE_URL}/api/points/award`,
       {
@@ -262,14 +279,14 @@ router.post("/:id/reviews", verifyToken, async (req, res) => {
         points: 20,
         referenceId: stationId,
         checkDuplicate: true,
-        duplicateKey: `review_${req.uid}_${stationId}`,
+        duplicateKey: `review_${req.uid}_${bookingId}`,
       },
       { headers: { "x-internal-secret": process.env.INTERNAL_SECRET } }
     ).catch((err) => console.error("[station-service] Review points failed:", err.message));
-    
-    // Recalculate average rating immediately (now includes pending/approved logic)
+
+    // Recalculate average rating immediately (includes pending/approved logic)
     await updateStationRating(stationId);
-    
+
     const message = autoApprove ? "Review posted successfully" : "Review submitted for moderation";
     res.json({ success: true, message, verifiedVisit });
   } catch (error) {
@@ -329,7 +346,7 @@ router.put("/:id/schedule", verifyToken, async (req, res) => {
 
   try {
     const batch = db.batch();
-    
+
     // schedule format: { "Monday": { isOpen: true, openTime: "09:00", closeTime: "22:00", slotDuration: 30 } }
     for (const [day, data] of Object.entries(schedule)) {
       const scheduleRef = db.collection("stations").doc(stationId).collection("schedule").doc(day);

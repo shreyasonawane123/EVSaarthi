@@ -49,12 +49,14 @@ const Toast = ({ toast, onClose }) => {
 };
 
 const TenantModal = ({ onClose, onSuccess, currentUser, editingTenant }) => {
-  const [name, setName]                   = useState(editingTenant?.name || "");
-  const [contactEmail, setContactEmail]   = useState(editingTenant?.contactEmail || "");
+  const [name, setName] = useState(editingTenant?.name || "");
+  const [contactEmail, setContactEmail] = useState(editingTenant?.contactEmail || "");
   const [contactPerson, setContactPerson] = useState(editingTenant?.contactPerson || "");
-  const [adminPassword, setAdminPassword] = useState("");
-  const [error, setError]                 = useState("");
-  const [loading, setLoading]             = useState(false);
+  const [contactPhone, setContactPhone] = useState(editingTenant?.contactPhone || "");
+  const [password, setPassword] = useState(editingTenant?.password || "");
+  const [greenPointsEnabled, setGreenPointsEnabled] = useState(editingTenant?.greenPointsEnabled !== false);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const handleSave = async () => {
     setError("");
@@ -64,16 +66,15 @@ const TenantModal = ({ onClose, onSuccess, currentUser, editingTenant }) => {
     try {
       const token = await currentUser.getIdToken();
       let res;
-      
-      const payload = { name, contactEmail, contactPerson };
+
+      const payload = { name, contactEmail, contactPerson, contactPhone, password, greenPointsEnabled };
 
       if (editingTenant) {
         res = await axios.put(`${API}/api/admin/tenants/${editingTenant.id}`, payload, {
           headers: { Authorization: `Bearer ${token}` }
         });
       } else {
-        const createPayload = { ...payload, adminPassword };
-        res = await axios.post(`${API}/api/admin/tenants`, createPayload, {
+        res = await axios.post(`${API}/api/admin/tenants`, payload, {
           headers: { Authorization: `Bearer ${token}` }
         });
       }
@@ -110,36 +111,65 @@ const TenantModal = ({ onClose, onSuccess, currentUser, editingTenant }) => {
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 20 }}>
-          <TextField 
-            label="Company / Tenant Name *" 
-            value={name} 
-            onChange={e => setName(e.target.value)} 
+          <TextField
+            label="Company / Tenant Name *"
+            value={name}
+            onChange={e => setName(e.target.value)}
             fullWidth size="small"
           />
-          <TextField 
-            label="Contact Email" 
+          <TextField
+            label="Contact Email"
             type="email"
-            value={contactEmail} 
-            onChange={e => setContactEmail(e.target.value)} 
+            value={contactEmail}
+            onChange={e => setContactEmail(e.target.value)}
             fullWidth size="small"
           />
-          <TextField 
-            label="Contact Person Name" 
-            value={contactPerson} 
-            onChange={e => setContactPerson(e.target.value)} 
+          <TextField
+            label="Contact Person Name"
+            value={contactPerson}
+            onChange={e => setContactPerson(e.target.value)}
             fullWidth size="small"
           />
-          {!editingTenant && (
-            <TextField 
-              label="Admin Password (set for contact email)" 
-              type="text"
-              value={adminPassword} 
-              onChange={e => setAdminPassword(e.target.value)} 
-              fullWidth size="small"
-              placeholder="Min 6 characters"
-              helperText="This password will be used for the admin account created with the contact email."
-            />
-          )}
+          <TextField
+            label="Phone Number"
+            type="tel"
+            value={contactPhone}
+            onChange={e => setContactPhone(e.target.value)}
+            fullWidth size="small"
+            placeholder="e.g. +91 98765 43210"
+            helperText="Contact phone number for this tenant."
+          />
+          <TextField
+            label="Tenant Password"
+            type="password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            fullWidth size="small"
+            placeholder="Enter password for tenant"
+            helperText="Used if tenant needs to log in directly."
+          />
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0' }}>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A' }}>Green Points</div>
+              <div style={{ fontSize: 12, color: '#6B7280' }}>Allow users to earn Green Points at this tenant's stations</div>
+            </div>
+            <div
+              onClick={() => setGreenPointsEnabled(!greenPointsEnabled)}
+              style={{
+                width: 48, height: 26, borderRadius: 13, cursor: 'pointer',
+                background: greenPointsEnabled ? '#16A34A' : '#D1D5DB',
+                position: 'relative', transition: 'background 0.2s',
+              }}
+            >
+              <div style={{
+                width: 22, height: 22, borderRadius: '50%', background: '#fff',
+                position: 'absolute', top: 2,
+                left: greenPointsEnabled ? 24 : 2,
+                transition: 'left 0.2s',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+              }} />
+            </div>
+          </div>
         </div>
 
         {error && (
@@ -177,19 +207,20 @@ const TenantModal = ({ onClose, onSuccess, currentUser, editingTenant }) => {
 
 const TenantsPage = () => {
   const { currentUser, adminRole } = useAuth();
-  
-  const [tenants, setTenants]             = useState([]);
-  const [fetching, setFetching]           = useState(true);
-  const [showModal, setShowModal]         = useState(false);
+
+  const [tenants, setTenants] = useState([]);
+  const [visibleCount, setVisibleCount] = useState(10);
+  const [fetching, setFetching] = useState(true);
+  const [showModal, setShowModal] = useState(false);
   const [editingTenant, setEditingTenant] = useState(null);
-  const [toast, setToast]                 = useState(null);
+  const [toast, setToast] = useState(null);
 
   const fetchData = useCallback(async () => {
     setFetching(true);
     try {
       const token = await currentUser.getIdToken();
       const res = await axios.get(`${API}/api/admin/tenants`, { headers: { Authorization: `Bearer ${token}` } });
-      
+
       if (res.data.success) {
         setTenants(res.data.tenants);
       }
@@ -271,7 +302,8 @@ const TenantsPage = () => {
             style={{
               padding: "11px 20px", background: "#3B82F6", border: "none",
               borderRadius: 8, fontSize: 14, fontWeight: 700, color: "#fff",
-              cursor: "pointer", display: "flex", alignItems: "center", gap: 8
+              cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+              width: window.innerWidth < 1024 ? "100%" : "auto"
             }}
           >
             <AddBusinessIcon fontSize="small" /> Create Tenant
@@ -302,7 +334,7 @@ const TenantsPage = () => {
               <table style={{ width: "100%", minWidth: "800px", borderCollapse: "collapse", whiteSpace: "nowrap" }}>
                 <thead>
                   <tr style={{ background: "#F9FAFB", borderBottom: "2px solid #E5E7EB" }}>
-                    {["Tenant Name", "Contact Email", "Contact Person", "Actions"].map((h) => (
+                    {["Tenant Name", "Contact Email", "Contact Person", "Phone", "Green Points", "Actions"].map((h) => (
                       <th key={h} style={{
                         padding: "12px 16px", textAlign: "left",
                         fontSize: 11, fontWeight: 700, color: "#6B7280",
@@ -314,7 +346,7 @@ const TenantsPage = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {tenants.map((t, i) => (
+                  {tenants.slice(0, visibleCount).map((t, i) => (
                     <tr
                       key={t.id}
                       style={{ borderBottom: i < tenants.length - 1 ? "1px solid #F3F4F6" : "none" }}
@@ -331,6 +363,19 @@ const TenantsPage = () => {
                       </td>
                       <td style={{ padding: "14px 16px", fontSize: 13, color: "#374151" }}>
                         {t.contactPerson || "-"}
+                      </td>
+                      <td style={{ padding: "14px 16px", fontSize: 13, color: "#374151" }}>
+                        {t.contactPhone || "-"}
+                      </td>
+                      <td style={{ padding: "14px 16px" }}>
+                        <span style={{
+                          display: 'inline-block', padding: '3px 10px', borderRadius: 20,
+                          fontSize: 11, fontWeight: 700,
+                          background: t.greenPointsEnabled !== false ? '#F0FDF4' : '#FEF2F2',
+                          color: t.greenPointsEnabled !== false ? '#16A34A' : '#DC2626',
+                        }}>
+                          {t.greenPointsEnabled !== false ? 'Enabled' : 'Disabled'}
+                        </span>
                       </td>
                       <td style={{ padding: "14px 16px" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -364,6 +409,22 @@ const TenantsPage = () => {
               </table>
             )}
           </div>
+          {!fetching && tenants.length > visibleCount && (
+            <div style={{ padding: "16px", textAlign: "center", borderTop: "1px solid #F3F4F6", background: "#F9FAFB" }}>
+              <button
+                onClick={() => setVisibleCount(v => v + 10)}
+                style={{
+                  padding: "8px 24px", background: "#fff", border: "1px solid #E5E7EB",
+                  borderRadius: "20px", fontSize: "13px", fontWeight: "600",
+                  color: "#374151", cursor: "pointer", transition: "all 0.2s"
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "#F3F4F6"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "#fff"; }}
+              >
+                Load More
+              </button>
+            </div>
+          )}
         </div>
 
       </div>

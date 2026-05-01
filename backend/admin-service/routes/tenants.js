@@ -50,7 +50,7 @@ router.get("/", async (req, res) => {
 
 // POST /api/tenants
 router.post("/", requireSuperadmin, async (req, res) => {
-  const { name, contactEmail, contactPerson } = req.body;
+  const { name, contactEmail, contactPerson, contactPhone, password, greenPointsEnabled } = req.body;
   if (!name) return res.status(400).json({ error: "Tenant name is required" });
 
   try {
@@ -58,6 +58,9 @@ router.post("/", requireSuperadmin, async (req, res) => {
       name,
       contactEmail: contactEmail || "",
       contactPerson: contactPerson || "",
+      contactPhone: contactPhone || "",
+      password: password || "",
+      greenPointsEnabled: greenPointsEnabled !== false,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp()
     };
@@ -73,13 +76,16 @@ router.post("/", requireSuperadmin, async (req, res) => {
 
 // PUT /api/tenants/:id
 router.put("/:id", requireSuperadmin, async (req, res) => {
-  const { name, contactEmail, contactPerson } = req.body;
+  const { name, contactEmail, contactPerson, contactPhone, password, greenPointsEnabled } = req.body;
   
   try {
     const updateData = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
     if (name !== undefined) updateData.name = name;
     if (contactEmail !== undefined) updateData.contactEmail = contactEmail;
     if (contactPerson !== undefined) updateData.contactPerson = contactPerson;
+    if (contactPhone !== undefined) updateData.contactPhone = contactPhone;
+    if (password !== undefined) updateData.password = password;
+    if (greenPointsEnabled !== undefined) updateData.greenPointsEnabled = greenPointsEnabled;
 
     await db.collection("tenants").doc(req.params.id).update(updateData);
     res.json({ success: true, message: "Tenant updated" });

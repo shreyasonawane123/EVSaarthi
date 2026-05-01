@@ -9,6 +9,7 @@ const API_GATEWAY = process.env.REACT_APP_API_URL || "http://localhost:5000";
 const UsersPage = () => {
   const { currentUser } = useAuth();
   const [users, setUsers] = useState([]);
+  const [visibleCount, setVisibleCount] = useState(10);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -88,7 +89,7 @@ const UsersPage = () => {
                   <td colSpan="7" className="p-8 text-center text-gray-500">No users found.</td>
                 </tr>
               ) : (
-                filteredUsers.map((user) => (
+                filteredUsers.slice(0, visibleCount).map((user) => (
                   <tr key={user.id} className="hover:bg-gray-50/50 transition-colors">
                     <td className="p-4">
                       <Avatar src={user.photoURL} className="!w-9 !h-9 border border-gray-100 shadow-sm" />
@@ -114,6 +115,16 @@ const UsersPage = () => {
             </tbody>
           </table>
         </div>
+        {!loading && filteredUsers.length > visibleCount && (
+          <div className="p-4 text-center border-t border-gray-100 bg-gray-50">
+            <button
+              onClick={() => setVisibleCount((prev) => prev + 10)}
+              className="px-6 py-2 bg-white border border-gray-200 rounded-full text-sm font-bold text-gray-700 hover:bg-gray-100 transition-colors shadow-sm"
+            >
+              Load More
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
