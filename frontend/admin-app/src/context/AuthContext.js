@@ -55,6 +55,9 @@ export const AuthProvider = ({ children }) => {
             getIdToken:  async () => token,
           });
           setAdminRole(data.admin.role);
+          // Set browser tab title based on role
+          const roleLabel = { superadmin: "Superadmin", admin: "Admin", operator: "Operator" }[data.admin.role] || "Staff";
+          document.title = `${roleLabel} Dashboard — EV Saarthi`;
           sessionStorage.setItem("admin_role", data.admin.role);
           sessionStorage.setItem("admin_name", data.admin.name || baseName);
         } else {

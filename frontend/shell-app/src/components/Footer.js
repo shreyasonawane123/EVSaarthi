@@ -5,8 +5,8 @@ import { Bolt as BoltIcon, Nature as NatureIcon } from '@mui/icons-material';
 const Footer = () => {
   const location = useLocation();
   
-  // Don't show footer on login page
-  if (location.pathname === '/login') return null;
+  // Don't show footer on login or landing page
+  if (location.pathname === '/' || location.pathname === '/login') return null;
 
   return (
     <footer className="bg-white border-t border-[#E5E7EB] py-5 px-5 md:px-12 flex flex-col md:flex-row justify-between items-center text-[13px] text-[#555] gap-4">

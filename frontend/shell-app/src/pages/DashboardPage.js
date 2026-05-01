@@ -1,7 +1,8 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import GreenPointsCard from "../components/GreenPointsCard";
+import axios from "axios";
 import {
   EmojiEvents as EmojiEventsIcon,
   Bolt as BoltIcon,
@@ -17,15 +18,39 @@ import {
   CheckCircle as CheckCircleIcon
 } from '@mui/icons-material';
 
+const API = process.env.REACT_APP_API_URL || "http://localhost:5000";
+
 const DashboardPage = () => {
   const { currentUser } = useAuth();
   const navigate = useNavigate();
+  const [greenPoints, setGreenPoints] = useState(0);
+  const [sessionCount, setSessionCount] = useState(0);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    const fetchStats = async () => {
+      try {
+        const token = await currentUser.getIdToken();
+        const headers = { Authorization: `Bearer ${token}` };
+        // Fetch green points balance
+        const balRes = await axios.get(`${API}/api/points/balance`, { headers }).catch(() => ({ data: {} }));
+        setGreenPoints(balRes.data?.balance || 0);
+        // Fetch bookings count
+        const bookRes = await axios.get(`${API}/api/bookings/my`, { headers }).catch(() => ({ data: {} }));
+        const bookings = bookRes.data?.bookings || [];
+        setSessionCount(bookings.length);
+      } catch (err) {
+        console.error("Failed to fetch dashboard stats", err);
+      }
+    };
+    fetchStats();
+  }, [currentUser]);
 
   const stats = [
-    { label: "Green Points", value: "0", icon: <EmojiEventsIcon className="text-[#16A34A] !text-[32px]" />, bg: "bg-[#F0FDF4]", border: "border-[#BBF7D0]", textColor: "text-[#16A34A]" },
-    { label: "Charging Sessions", value: "0", icon: <BoltIcon className="text-[#D97706] !text-[32px]" />, bg: "bg-[#FFFBEB]", border: "border-[#FDE68A]", textColor: "text-[#D97706]" },
-    { label: "CO2 Saved", value: "0 kg", icon: <CloudIcon className="text-[#0284C7] !text-[32px]" />, bg: "bg-[#F0F9FF]", border: "border-[#BAE6FD]", textColor: "text-[#0284C7]" },
-    { label: "Money Saved", value: "₹0", icon: <SavingsIcon className="text-[#7C3AED] !text-[32px]" />, bg: "bg-[#F5F3FF]", border: "border-[#DDD6FE]", textColor: "text-[#7C3AED]" },
+    { label: "Green Points", value: greenPoints.toLocaleString("en-IN"), icon: <EmojiEventsIcon className="text-[#16A34A] !text-[32px]" />, bg: "bg-[#F0FDF4]", border: "border-[#BBF7D0]", textColor: "text-[#16A34A]" },
+    { label: "Charging Sessions", value: sessionCount.toString(), icon: <BoltIcon className="text-[#D97706] !text-[32px]" />, bg: "bg-[#FFFBEB]", border: "border-[#FDE68A]", textColor: "text-[#D97706]" },
+    { label: "CO2 Saved", value: `${(sessionCount * 2.3).toFixed(1)} kg`, icon: <CloudIcon className="text-[#0284C7] !text-[32px]" />, bg: "bg-[#F0F9FF]", border: "border-[#BAE6FD]", textColor: "text-[#0284C7]" },
+    { label: "Money Saved", value: `₹${(sessionCount * 45).toLocaleString("en-IN")}`, icon: <SavingsIcon className="text-[#7C3AED] !text-[32px]" />, bg: "bg-[#F5F3FF]", border: "border-[#DDD6FE]", textColor: "text-[#7C3AED]" },
   ];
 
   const features = [
@@ -41,9 +66,9 @@ const DashboardPage = () => {
       label: "Book a Slot",
       desc: "Reserve your charging slot",
       icon: <CalendarMonthIcon className="text-[#1A1A1A] !text-[36px]" />,
-      tag: "Week 4",
-      path: "/booking",
-      ready: false
+      tag: "Ready ✓",
+      path: "/map",
+      ready: true
     },
     {
       label: "Analytics",
@@ -101,7 +126,7 @@ const DashboardPage = () => {
           <EmojiEventsIcon className="!text-[56px] mb-4 opacity-90" />
           <h3 className="text-xl font-bold mb-1">Green Member</h3>
           <div className="text-4xl font-black mb-4">
-            0 <span className="text-lg font-bold opacity-70">Points</span>
+            {greenPoints.toLocaleString("en-IN")} <span className="text-lg font-bold opacity-70">Points</span>
           </div>
           <div className="bg-white/20 inline-block px-4 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
             Active Since {memberSince}
@@ -174,53 +199,32 @@ const DashboardPage = () => {
         </div>
       </div>
 
-      {/* SECTION 4 & 5 */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-
-        {/* ACCOUNT INFO */}
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="bg-gray-50 border-b border-gray-100 px-6 py-4">
-            <h2 className="text-lg font-black text-[#1A1A1A]">Account Information</h2>
-          </div>
-          <div className="divide-y divide-gray-100 px-6">
-            <InfoRow
-              icon={<PersonIcon className="text-gray-400" />}
-              label="Full Name"
-              value={currentUser?.displayName || "—"}
-            />
-            <InfoRow
-              icon={<EmailIcon className="text-gray-400" />}
-              label="Email ID"
-              value={currentUser?.email || "—"}
-            />
-            <InfoRow
-              icon={<CalendarMonthIcon className="text-gray-400" />}
-              label="Member Since"
-              value={memberSince}
-            />
-            <InfoRow
-              icon={<CheckCircleIcon className="text-green-500" />}
-              label="Status"
-              value="Verified Active"
-            />
-          </div>
+      {/* ACCOUNT INFO — Full Width */}
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="bg-gray-50 border-b border-gray-100 px-6 py-4">
+          <h2 className="text-lg font-black text-[#1A1A1A]">Account Information</h2>
         </div>
-
-        {/* RECENT ACTIVITY */}
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col items-center justify-center p-12 text-center min-h-[340px]">
-          <div className="bg-gray-100 w-20 h-20 rounded-full flex items-center justify-center mb-6">
-            <HistoryIcon className="text-gray-400 !text-4xl" />
-          </div>
-          <h3 className="text-xl font-black text-[#1A1A1A] mb-2">No activity yet</h3>
-          <p className="text-gray-500 text-sm max-w-[280px] mb-8 font-medium">
-            Start by finding a charging station near you to begin your EV journey.
-          </p>
-          <button
-            onClick={() => navigate('/map')}
-            className="bg-[#EAB308] hover:bg-[#D97706] text-[#1A1A1A] font-extrabold px-8 py-3 rounded-lg transition-all shadow-lg"
-          >
-            Find Stations
-          </button>
+        <div className="divide-y divide-gray-100 px-6">
+          <InfoRow
+            icon={<PersonIcon className="text-gray-400" />}
+            label="Full Name"
+            value={currentUser?.displayName || "—"}
+          />
+          <InfoRow
+            icon={<EmailIcon className="text-gray-400" />}
+            label="Email ID"
+            value={currentUser?.email || "—"}
+          />
+          <InfoRow
+            icon={<CalendarMonthIcon className="text-gray-400" />}
+            label="Member Since"
+            value={memberSince}
+          />
+          <InfoRow
+            icon={<CheckCircleIcon className="text-green-500" />}
+            label="Status"
+            value="Verified Active"
+          />
         </div>
       </div>
     </div>
@@ -238,3 +242,4 @@ const InfoRow = ({ icon, label, value }) => (
 );
 
 export default DashboardPage;
+

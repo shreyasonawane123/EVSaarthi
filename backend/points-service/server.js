@@ -55,6 +55,9 @@ async function initializePointsConfig() {
         sessionCompletionBonus: 50,
         reviewBonus: 20,
         referralBonus: 200,
+        purchasePricePerPoint: 0.50,
+        minPointsPurchase: 1000,
+        pointsExpiryDays: 365,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedBy: "system",
       });

@@ -1,13 +1,22 @@
 // backend/admin-service/routes/admin.js
 // All admin API routes for EV Saarthi
 // Requires verifyToken + verifyAdmin on protected routes
+require("dotenv").config();
 
 const express = require("express");
 const router = express.Router();
 const axios = require("axios");
+const crypto = require("crypto");
+const Razorpay = require("razorpay");
 const { db, admin } = require("../config/firebase");
 const verifyToken = require("../middleware/verifyToken");
 const verifyAdmin = require("../middleware/verifyAdmin");
+
+// ── Razorpay Setup (for admin points purchase) ─────────────────
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID || "rzp_test_SXwCfEf5EfAy8k",
+  key_secret: process.env.RAZORPAY_KEY_SECRET || "CyzezCv4toXmNUofZi5QmvO4",
+});
 
 // Require superadmin for all tenant creations/deletions
 const requireSuperadmin = (req, res, next) => {
@@ -76,10 +85,10 @@ async function getMapplsToken() {
   if (cachedMapplsToken && Date.now() < tokenExpiryTime) {
     return cachedMapplsToken;
   }
-  
+
   const clientId = process.env.MAPPLS_CLIENT_ID;
   const clientSecret = process.env.MAPPLS_CLIENT_SECRET;
-  
+
   if (!clientId || !clientSecret) {
     console.warn("[geocode] MAPPLS_CLIENT_ID or MAPPLS_CLIENT_SECRET not set in .env");
     return null;
@@ -99,7 +108,7 @@ async function getMapplsToken() {
     if (res.data && res.data.access_token) {
       cachedMapplsToken = res.data.access_token;
       // Expires in seconds, subtract 5 mins (300s) buffer
-      const expiresIn = res.data.expires_in || 86400; 
+      const expiresIn = res.data.expires_in || 86400;
       tokenExpiryTime = Date.now() + (expiresIn - 300) * 1000;
       console.log("[geocode] ✅ Successfully generated Mappls OAuth Bearer Token");
       return cachedMapplsToken;
@@ -130,27 +139,27 @@ async function geocodeAddress(address, city, state) {
     const url = `https://atlas.mappls.com/api/places/geocode`;
     const response = await axios.get(url, {
       params: { address: fullAddress },
-      headers: { 
+      headers: {
         "Authorization": `bearer ${token}`,
-        "User-Agent": "EVSaarthiAdmin/1.0" 
+        "User-Agent": "EVSaarthiAdmin/1.0"
       },
       timeout: 10000,
     });
 
     const data = response.data;
-    
+
     // Mappls Geocoding API returns a single object in `copResults`
     if (data && data.copResults) {
       const r = data.copResults;
       const parsedLat = parseFloat(r.latitude || r.lat || 0);
       const parsedLng = parseFloat(r.longitude || r.lng || 0);
-      
+
       if (!isNaN(parsedLat) && !isNaN(parsedLng) && parsedLat !== 0) {
         console.log(`[geocode] ✅ "${fullAddress}" → ${parsedLat}, ${parsedLng}`);
         return { lat: parsedLat, lng: parsedLng };
       }
     }
-    
+
     console.warn(`[geocode] ⚠️  No results for: "${fullAddress}"`);
     return null;
   } catch (err) {
@@ -171,7 +180,7 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 router.get("/stations", verifyToken, verifyAdmin, async (req, res) => {
   try {
     let snapshot;
-    
+
     if (req.adminRole === "superadmin") {
       snapshot = await db.collection("stations").get();
       const tenantsSnapshot = await db.collection("tenants").get();
@@ -214,7 +223,7 @@ router.get("/stations", verifyToken, verifyAdmin, async (req, res) => {
       createdAt: doc.data().createdAt?.toDate?.().toISOString() || null,
       updatedAt: doc.data().updatedAt?.toDate?.().toISOString() || null,
     }));
-    
+
     // Sort in memory to avoid requiring a composite index alongside where
     stations.sort((a, b) => {
       const ta = a.createdAt || "";
@@ -277,14 +286,14 @@ router.post("/stations/add", verifyToken, verifyAdmin, async (req, res) => {
     // 🛑 DUPLICATE PREVENTION (Task 4)
     // Same name (case-insensitive) AND nearby location (within ~200 meters)
     const stationsSnapshot = await db.collection("stations").get();
-    
+
     let isDuplicate = false;
     const incomingName = name.trim().toLowerCase();
 
     for (const doc of stationsSnapshot.docs) {
       const station = doc.data();
       const existingName = (station.name || "").trim().toLowerCase();
-      
+
       if (incomingName === existingName) {
         if (lat !== 0 && lng !== 0 && station.lat && station.lng) {
           const distKm = getDistanceKm(lat, lng, station.lat, station.lng);
@@ -377,7 +386,7 @@ router.post("/stations/geocode-missing", verifyToken, verifyAdmin, async (req, r
         failed++;
         results.push({ id: doc.id, name: d.name, status: "failed" });
       }
-      
+
       // Delay 1 second to respect OpenStreetMap Nominatim usage policy
       await sleep(1000);
     }
@@ -526,11 +535,11 @@ router.post("/stations/bulk-add", verifyToken, verifyAdmin, async (req, res) => 
   try {
     const now = admin.firestore.FieldValue.serverTimestamp();
     const stationsCol = db.collection("stations");
-    
+
     // Fetch all existing stations for duplicate comparison
     const existingSnapshot = await stationsCol.get();
     const existingStations = existingSnapshot.docs.map(doc => doc.data());
-    
+
     // Firestore batch limit is 500 operations.
     const CHUNK_SIZE = 500;
     let totalSuccess = 0;
@@ -647,16 +656,16 @@ router.get("/tenants", verifyToken, verifyAdmin, async (req, res) => {
   try {
     let snapshot;
     if (req.adminRole === "superadmin") {
-        snapshot = await db.collection("tenants").get();
+      snapshot = await db.collection("tenants").get();
     } else {
-        if (!req.tenantId) {
-            return res.json({ success: true, tenants: [] });
-        }
-        const doc = await db.collection("tenants").doc(req.tenantId).get();
-        if (doc.exists) {
-            return res.json({ success: true, tenants: [{ id: doc.id, ...doc.data() }] });
-        }
+      if (!req.tenantId) {
         return res.json({ success: true, tenants: [] });
+      }
+      const doc = await db.collection("tenants").doc(req.tenantId).get();
+      if (doc.exists) {
+        return res.json({ success: true, tenants: [{ id: doc.id, ...doc.data() }] });
+      }
+      return res.json({ success: true, tenants: [] });
     }
 
     const tenants = snapshot.docs.map(doc => ({
@@ -674,61 +683,62 @@ router.get("/tenants", verifyToken, verifyAdmin, async (req, res) => {
 
 // POST /tenants
 router.post("/tenants", verifyToken, verifyAdmin, requireSuperadmin, async (req, res) => {
-  const { name, contactEmail, contactPerson, adminPassword } = req.body;
+  const { name, contactEmail, contactPerson, contactPhone, password, greenPointsEnabled } = req.body;
   if (!name) return res.status(400).json({ error: "Tenant name is required" });
 
   try {
+    // 1. If password and email are provided, ensure the email isn't already used as an admin
+    if (contactEmail && password && password.trim().length >= 6) {
+      const emailLower = contactEmail.trim().toLowerCase();
+      try {
+        await admin.auth().getUserByEmail(emailLower);
+        return res.status(400).json({ error: "An account with this email already exists." });
+      } catch (authErr) {
+        if (authErr.code !== "auth/user-not-found") {
+          throw authErr;
+        }
+      }
+    }
+
     const tenantData = {
       name,
       contactEmail: contactEmail || "",
       contactPerson: contactPerson || "",
+      contactPhone: contactPhone || "",
+      greenPointsEnabled: greenPointsEnabled !== false,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp()
     };
-    
+
     const docRef = await db.collection("tenants").add(tenantData);
     const tenantId = docRef.id;
 
-    // Create admin user if password provided
-    if (adminPassword && contactEmail) {
+    // 2. Create the Firebase Auth user & adminUser doc if password was provided
+    if (contactEmail && password && password.trim().length >= 6) {
       const emailLower = contactEmail.trim().toLowerCase();
-      let uid;
-      try {
-        const userRecord = await admin.auth().getUserByEmail(emailLower);
-        uid = userRecord.uid;
-        // Update password for existing user
-        if (adminPassword.length >= 6) {
-          await admin.auth().updateUser(uid, { password: adminPassword });
-        }
-      } catch (authErr) {
-        if (authErr.code === "auth/user-not-found") {
-          // User doesn't exist -> Create them
-          if (adminPassword.length < 6) {
-            return res.status(400).json({ error: "Admin password must be at least 6 characters" });
-          }
-          const newUser = await admin.auth().createUser({
-            email: emailLower,
-            password: adminPassword,
-            displayName: contactPerson || "Admin"
-          });
-          uid = newUser.uid;
-          await db.collection("users").doc(uid).set({
-            name: contactPerson || "Admin",
-            email: emailLower,
-            createdAt: admin.firestore.FieldValue.serverTimestamp()
-          });
-        } else {
-          throw authErr;
-        }
-      }
-
-      // Add/Update in adminUsers
-      await db.collection("adminUsers").doc(uid).set({
-        name: contactPerson || "Admin",
+      const newUser = await admin.auth().createUser({
         email: emailLower,
+        password: password,
+        displayName: contactPerson || name || "Tenant Admin"
+      });
+      const uid = newUser.uid;
+
+      // Add to public users/
+      await db.collection("users").doc(uid).set({
+        name: contactPerson || name || "Tenant Admin",
+        email: emailLower,
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+      // Add to adminUsers/
+      await db.collection("adminUsers").doc(uid).set({
+        uid,
+        email: emailLower,
+        name: contactPerson || name || "Tenant Admin",
         role: "admin",
         tenantId: tenantId,
-        createdAt: admin.firestore.FieldValue.serverTimestamp()
+        addedBy: req.uid,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
     }
 
@@ -741,16 +751,66 @@ router.post("/tenants", verifyToken, verifyAdmin, requireSuperadmin, async (req,
 
 // PUT /tenants/:id
 router.put("/tenants/:id", verifyToken, verifyAdmin, requireSuperadmin, async (req, res) => {
-  const { name, contactEmail, contactPerson } = req.body;
+  const { name, contactEmail, contactPerson, contactPhone, password, greenPointsEnabled } = req.body;
+  const tenantId = req.params.id;
   try {
     const updateData = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
     if (name !== undefined) updateData.name = name;
     if (contactEmail !== undefined) updateData.contactEmail = contactEmail;
     if (contactPerson !== undefined) updateData.contactPerson = contactPerson;
+    if (contactPhone !== undefined) updateData.contactPhone = contactPhone;
+    if (greenPointsEnabled !== undefined) updateData.greenPointsEnabled = greenPointsEnabled;
 
-    await db.collection("tenants").doc(req.params.id).update(updateData);
+    await db.collection("tenants").doc(tenantId).update(updateData);
+
+    // If password is provided, try to update existing or create new admin user
+    if (contactEmail && password && password.trim().length >= 6) {
+      const emailLower = contactEmail.trim().toLowerCase();
+      let uid;
+
+      try {
+        const userRecord = await admin.auth().getUserByEmail(emailLower);
+        uid = userRecord.uid;
+        // Update password if user exists
+        await admin.auth().updateUser(uid, { password });
+      } catch (authErr) {
+        if (authErr.code === "auth/user-not-found") {
+          // Create new user if not found
+          const newUser = await admin.auth().createUser({
+            email: emailLower,
+            password: password,
+            displayName: contactPerson || name || "Tenant Admin"
+          });
+          uid = newUser.uid;
+
+          await db.collection("users").doc(uid).set({
+            name: contactPerson || name || "Tenant Admin",
+            email: emailLower,
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+          });
+        } else {
+          throw authErr;
+        }
+      }
+
+      // Ensure they exist in adminUsers for this tenant
+      const existingAdmin = await db.collection("adminUsers").doc(uid).get();
+      if (!existingAdmin.exists) {
+        await db.collection("adminUsers").doc(uid).set({
+          uid,
+          email: emailLower,
+          name: contactPerson || name || "Tenant Admin",
+          role: "admin",
+          tenantId: tenantId,
+          addedBy: req.uid,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+    }
+
     res.json({ success: true, message: "Tenant updated" });
   } catch (error) {
+    console.error("[admin-service] Update tenant error:", error);
     res.status(500).json({ error: "Failed to update tenant" });
   }
 });
@@ -761,7 +821,7 @@ router.delete("/tenants/:id", verifyToken, verifyAdmin, requireSuperadmin, async
   try {
     // 1. Find all admins belonging to this tenant
     const adminsSnapshot = await db.collection("adminUsers").where("tenantId", "==", tenantId).get();
-    
+
     // 2. Find all stations belonging to this tenant
     const stationsSnapshot = await db.collection("stations").where("tenantId", "==", tenantId).get();
 
@@ -814,22 +874,22 @@ router.get("/me", verifyToken, async (req, res) => {
         return res.status(404).json({ success: false, error: "Profile not found" });
       }
     }
-    
+
     let tenantName = null;
     if (data.tenantId) {
-        const tenantDoc = await db.collection("tenants").doc(data.tenantId).get();
-        if (tenantDoc.exists) {
-            tenantName = tenantDoc.data().name;
-        }
+      const tenantDoc = await db.collection("tenants").doc(data.tenantId).get();
+      if (tenantDoc.exists) {
+        tenantName = tenantDoc.data().name;
+      }
     }
 
-    res.json({ 
-        success: true, 
-        admin: { 
-            uid: req.uid, 
-            ...data,
-            tenantName
-        } 
+    res.json({
+      success: true,
+      admin: {
+        uid: req.uid,
+        ...data,
+        tenantName
+      }
     });
   } catch (error) {
     console.error("[admin-service] Get me error:", error.message);
@@ -846,7 +906,7 @@ router.get("/me", verifyToken, async (req, res) => {
 router.get("/stats", verifyToken, verifyAdmin, async (req, res) => {
   try {
     let usersSnap, stationsSnap, vehiclesSnap;
-    
+
     if (req.adminRole === "superadmin") {
       [usersSnap, stationsSnap, vehiclesSnap] = await Promise.all([
         db.collection("users").get(),
@@ -856,7 +916,7 @@ router.get("/stats", verifyToken, verifyAdmin, async (req, res) => {
     } else {
       // For Tenant Admins
       if (!req.tenantId) {
-          return res.json({ success: true, stats: { totalUsers: 0, totalStations: 0, activeStations: 0, totalVehicles: 0 } });
+        return res.json({ success: true, stats: { totalUsers: 0, totalStations: 0, activeStations: 0, totalVehicles: 0 } });
       }
       // Note: Users and Vehicles are global Platform-level metrics. 
       // Tenant Admins only see stats for their own stations.
@@ -869,9 +929,9 @@ router.get("/stats", verifyToken, verifyAdmin, async (req, res) => {
     let totalStations = stationsSnap ? stationsSnap.size : 0;
 
     if (stationsSnap) {
-        stationsSnap.docs.forEach((doc) => {
-          if (doc.data().isActive === true) activeStations++;
-        });
+      stationsSnap.docs.forEach((doc) => {
+        if (doc.data().isActive === true) activeStations++;
+      });
     }
 
     res.json({
@@ -923,7 +983,7 @@ router.post("/team/add", verifyToken, verifyAdmin, async (req, res) => {
 
   const { email, password, tenantId, role } = req.body;
   const newRole = role === "superadmin" ? "superadmin" : "admin";
-  
+
   if (!email || !email.trim()) {
     return res.status(400).json({ error: "Email is required" });
   }
@@ -938,7 +998,7 @@ router.post("/team/add", verifyToken, verifyAdmin, async (req, res) => {
       const userRecord = await admin.auth().getUserByEmail(emailLower);
       uid = userRecord.uid;
       userData.name = userRecord.displayName || "Admin";
-      
+
       // Update password if one was provided in the UI
       if (password && password.trim().length >= 6) {
         await admin.auth().updateUser(uid, { password });
@@ -949,14 +1009,14 @@ router.post("/team/add", verifyToken, verifyAdmin, async (req, res) => {
         if (!password || password.trim().length < 6) {
           return res.status(400).json({ error: "User does not exist. A password of at least 6 characters is required to create a new admin." });
         }
-        
+
         const newUser = await admin.auth().createUser({
           email: emailLower,
           password: password,
           displayName: "Admin"
         });
         uid = newUser.uid;
-        
+
         // Add them to the public users/ collection so they formally exist
         await db.collection("users").doc(uid).set({
           name: "Admin",
@@ -974,11 +1034,11 @@ router.post("/team/add", verifyToken, verifyAdmin, async (req, res) => {
       // If we just provided a password, its updated. If we also provided a role, let's update it if needed.
       const existingData = existingAdmin.data();
       if (existingData.role !== newRole) {
-         await db.collection("adminUsers").doc(uid).update({ role: newRole });
+        await db.collection("adminUsers").doc(uid).update({ role: newRole });
       }
 
-      return res.json({ 
-        success: true, 
+      return res.json({
+        success: true,
         message: "Admin updated successfully",
         admin: { uid, email: userData.email, name: userData.name, role: newRole }
       });
@@ -1053,10 +1113,10 @@ router.get("/reviews", verifyToken, verifyAdmin, async (req, res) => {
     if (req.adminRole === "superadmin") {
       const stationsSnapshot = await db.collection("stations").get();
       const tenantsSnapshot = await db.collection("tenants").get();
-      
+
       const existingTenantIds = new Set(tenantsSnapshot.docs.map(doc => doc.id));
       const stationsMap = {};
-      
+
       stationsSnapshot.forEach(doc => {
         const sData = doc.data();
         // A station is valid if it has no tenantId (platform level) or its tenantId exists
@@ -1084,7 +1144,7 @@ router.get("/reviews", verifyToken, verifyAdmin, async (req, res) => {
       if (!req.tenantId) {
         return res.json({ success: true, reviews: [] });
       }
-      
+
       // 1. Fetch station IDs belonging to the tenant
       const stationsSnapshot = await db.collection("stations").where("tenantId", "==", req.tenantId).get();
       const stationIds = stationsSnapshot.docs.map(doc => doc.id);
@@ -1111,11 +1171,11 @@ router.get("/reviews", verifyToken, verifyAdmin, async (req, res) => {
     res.json({ success: true, reviews });
   } catch (error) {
     console.error("[admin-service] Get reviews moderation error:", error.message);
-    res.status(500).json({ 
-      error: "Failed to fetch reviews for moderation", 
+    res.status(500).json({
+      error: "Failed to fetch reviews for moderation",
       message: error.message,
       // If this is a missing index error, the message will contain a link to create it!
-      details: error.stack 
+      details: error.stack
     });
   }
 });
@@ -1133,7 +1193,7 @@ router.patch("/reviews/:stationId/:reviewId", verifyToken, verifyAdmin, async (r
   try {
     const reviewRef = db.collection("stations").doc(stationId).collection("reviews").doc(reviewId);
     const doc = await reviewRef.get();
-    
+
     if (!doc.exists) {
       return res.status(404).json({ error: "Review not found" });
     }
@@ -1158,18 +1218,18 @@ router.patch("/reviews/:stationId/:reviewId", verifyToken, verifyAdmin, async (r
 // Bulk approve reviews
 router.post("/reviews/approve-all", verifyToken, verifyAdmin, async (req, res) => {
   const { reviewIds } = req.body;
-  
+
   if (!reviewIds || !Array.isArray(reviewIds) || reviewIds.length === 0) {
     return res.status(400).json({ error: "reviewIds array is required" });
   }
 
   try {
     const batch = db.batch();
-    
+
     for (const item of reviewIds) {
       const { stationId, reviewId } = item;
       if (!stationId || !reviewId) continue;
-      
+
       const reviewRef = db.collection("stations").doc(stationId).collection("reviews").doc(reviewId);
       batch.update(reviewRef, {
         status: "approved",
@@ -1197,18 +1257,18 @@ router.post("/reviews/approve-all", verifyToken, verifyAdmin, async (req, res) =
 // Bulk reject reviews
 router.post("/reviews/reject-all", verifyToken, verifyAdmin, async (req, res) => {
   const { reviewIds } = req.body;
-  
+
   if (!reviewIds || !Array.isArray(reviewIds) || reviewIds.length === 0) {
     return res.status(400).json({ error: "reviewIds array is required" });
   }
 
   try {
     const batch = db.batch();
-    
+
     for (const item of reviewIds) {
       const { stationId, reviewId } = item;
       if (!stationId || !reviewId) continue;
-      
+
       const reviewRef = db.collection("stations").doc(stationId).collection("reviews").doc(reviewId);
       batch.update(reviewRef, {
         status: "rejected",
@@ -1252,7 +1312,7 @@ router.get("/points/config", verifyToken, verifyAdmin, async (req, res) => {
 
 // POST /api/admin/points/config
 router.post("/points/config", verifyToken, verifyAdmin, requireSuperadmin, async (req, res) => {
-  const { pointValueInRupees, minRedemptionPoints } = req.body;
+  const { pointValueInRupees, minRedemptionPoints, purchasePricePerPoint, minPointsPurchase, pointsExpiryDays } = req.body;
   try {
     const updates = {
       updatedBy: req.uid,
@@ -1260,6 +1320,9 @@ router.post("/points/config", verifyToken, verifyAdmin, requireSuperadmin, async
     };
     if (pointValueInRupees !== undefined) updates.pointValueInRupees = Number(pointValueInRupees);
     if (minRedemptionPoints !== undefined) updates.minRedemptionPoints = Number(minRedemptionPoints);
+    if (purchasePricePerPoint !== undefined) updates.purchasePricePerPoint = Number(purchasePricePerPoint);
+    if (minPointsPurchase !== undefined) updates.minPointsPurchase = Number(minPointsPurchase);
+    if (pointsExpiryDays !== undefined) updates.pointsExpiryDays = Number(pointsExpiryDays);
 
     await db.collection("pointsConfig").doc("settings").update(updates);
     res.json({ success: true, message: "Points configuration updated" });
@@ -1288,7 +1351,7 @@ router.get("/points/station-requests", verifyToken, verifyAdmin, async (req, res
       createdAt: doc.data().createdAt?.toDate?.().toISOString() || null,
       reviewedAt: doc.data().reviewedAt?.toDate?.().toISOString() || null,
     }));
-    
+
     // In-memory sort to bypass missing composite index errors
     requests.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
 
@@ -1338,6 +1401,335 @@ router.patch("/points/station-requests/:id", verifyToken, verifyAdmin, async (re
   } catch (error) {
     console.error("[admin-service] Review station request error:", error.message);
     res.status(500).json({ error: "Failed to update request" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GREEN POINTS PURCHASE ROUTES (Admin buys points from Superadmin)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// GET /api/admin/points/wallet
+// Returns tenant's green points wallet balance
+router.get("/points/wallet", verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    if (req.adminRole === "superadmin") {
+      // Superadmin sees all tenant wallets
+      const snapshot = await db.collection("tenantPointsWallet").get();
+      const wallets = snapshot.docs.map((doc) => ({
+        tenantId: doc.id,
+        ...doc.data(),
+        updatedAt: doc.data().updatedAt?.toDate?.().toISOString() || null,
+      }));
+
+      // Enrich with tenant names
+      const tenantsSnap = await db.collection("tenants").get();
+      const tenantMap = {};
+      tenantsSnap.docs.forEach((d) => { tenantMap[d.id] = d.data().name; });
+      wallets.forEach((w) => { w.tenantName = tenantMap[w.tenantId] || "Unknown"; });
+
+      return res.json({ success: true, wallets });
+    }
+
+    // Admin/operator sees their own tenant wallet
+    const tenantId = req.tenantId;
+    if (!tenantId) {
+      return res.json({ success: true, wallet: { availablePoints: 0, totalPurchased: 0, totalDistributed: 0 } });
+    }
+
+    const walletDoc = await db.collection("tenantPointsWallet").doc(tenantId).get();
+    if (!walletDoc.exists) {
+      return res.json({ success: true, wallet: { tenantId, availablePoints: 0, totalPurchased: 0, totalDistributed: 0 } });
+    }
+
+    res.json({ success: true, wallet: { tenantId, ...walletDoc.data(), updatedAt: walletDoc.data().updatedAt?.toDate?.().toISOString() || null } });
+  } catch (error) {
+    console.error("[admin-service] Get wallet error:", error.message);
+    res.status(500).json({ error: "Failed to fetch wallet" });
+  }
+});
+
+// POST /api/admin/points/purchase/order
+// Admin creates a Razorpay order to buy green points
+router.post("/points/purchase/order", verifyToken, verifyAdmin, async (req, res) => {
+  const { pointsRequested } = req.body;
+
+  if (!pointsRequested || Number(pointsRequested) <= 0) {
+    return res.status(400).json({ error: "pointsRequested must be a positive number" });
+  }
+
+  const pts = Number(pointsRequested);
+
+  try {
+    // Read config for pricing
+    const configDoc = await db.collection("pointsConfig").doc("settings").get();
+    if (!configDoc.exists) {
+      return res.status(503).json({ error: "Points configuration not available" });
+    }
+    const config = configDoc.data();
+    const pricePerPoint = config.purchasePricePerPoint || 0.50;
+    const minPurchase = config.minPointsPurchase || 1000;
+
+    if (pts < minPurchase) {
+      return res.status(400).json({ error: `Minimum purchase is ${minPurchase} points` });
+    }
+
+    const totalAmount = parseFloat((pts * pricePerPoint).toFixed(2));
+
+    // Create Razorpay order
+    const order = await razorpay.orders.create({
+      amount: Math.round(totalAmount * 100), // paise
+      currency: "INR",
+      receipt: `pts_${Date.now()}`,
+    });
+
+    // Save purchase order record
+    const tenantId = req.tenantId || "superadmin";
+    const orderRef = await db.collection("pointsPurchaseOrders").add({
+      tenantId,
+      adminUid: req.uid,
+      pointsRequested: pts,
+      pricePerPoint,
+      totalAmount,
+      razorpay_order_id: order.id,
+      razorpay_payment_id: null,
+      status: "pending",
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      paidAt: null,
+    });
+
+    console.log(`[admin-service] Points purchase order created: ${pts} pts for ₹${totalAmount} by ${req.uid}`);
+    res.json({
+      success: true,
+      orderId: order.id,
+      amount: order.amount,
+      currency: order.currency,
+      totalAmount,
+      pointsRequested: pts,
+      pricePerPoint,
+      purchaseDocId: orderRef.id,
+    });
+  } catch (error) {
+    console.error("[admin-service] Purchase order error:", error.message);
+    res.status(500).json({ error: "Failed to create purchase order", details: error.message });
+  }
+});
+
+// POST /api/admin/points/purchase/verify
+// Verify Razorpay payment and credit points to tenant wallet
+router.post("/points/purchase/verify", verifyToken, verifyAdmin, async (req, res) => {
+  const { razorpay_order_id, razorpay_payment_id, razorpay_signature, purchaseDocId } = req.body;
+
+  console.log("[admin-service] Verify attempt:", { razorpay_order_id, razorpay_payment_id, purchaseDocId });
+
+  if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature || !purchaseDocId) {
+    return res.status(400).json({ error: "Missing required payment verification fields" });
+  }
+
+  try {
+    // Verify Razorpay signature
+    const keySecret = process.env.RAZORPAY_KEY_SECRET || "CyzezCv4toXmNUofZi5QmvO4";
+    const body = razorpay_order_id + "|" + razorpay_payment_id;
+    const expected = crypto.createHmac("sha256", keySecret).update(body).digest("hex");
+
+    console.log("[admin-service] Signature check — expected:", expected, "received:", razorpay_signature);
+
+    if (expected !== razorpay_signature) {
+      console.error("[admin-service] Signature MISMATCH — payment rejected");
+      return res.status(400).json({ error: "Invalid payment signature" });
+    }
+
+    // Fetch purchase order
+    const purchaseRef = db.collection("pointsPurchaseOrders").doc(purchaseDocId);
+    const purchaseDoc = await purchaseRef.get();
+
+    if (!purchaseDoc.exists) {
+      console.error("[admin-service] Purchase doc not found:", purchaseDocId);
+      return res.status(404).json({ error: "Purchase order not found" });
+    }
+
+    const purchaseData = purchaseDoc.data();
+    console.log("[admin-service] Purchase data:", purchaseData);
+
+    if (purchaseData.status === "paid") {
+      return res.json({ success: true, message: "Already verified", alreadyPaid: true });
+    }
+
+    const tenantId = purchaseData.tenantId;
+    const pointsToCredit = purchaseData.pointsRequested;
+    const nowISO = new Date().toISOString();
+
+    // Step 1: Mark purchase as paid
+    await purchaseRef.update({
+      razorpay_payment_id,
+      status: "paid",
+      paidAt: nowISO,
+    });
+
+    // Step 2: Credit tenant wallet (read-then-write outside transaction for compatibility)
+    const walletRef = db.collection("tenantPointsWallet").doc(tenantId);
+    const walletDoc = await walletRef.get();
+
+    if (walletDoc.exists) {
+      const current = walletDoc.data();
+      await walletRef.update({
+        availablePoints: (current.availablePoints || 0) + pointsToCredit,
+        totalPurchased: (current.totalPurchased || 0) + pointsToCredit,
+        updatedAt: nowISO,
+      });
+    } else {
+      await walletRef.set({
+        tenantId,
+        availablePoints: pointsToCredit,
+        totalPurchased: pointsToCredit,
+        totalDistributed: 0,
+        updatedAt: nowISO,
+      });
+    }
+
+    console.log(`[admin-service] ✅ ${pointsToCredit} pts credited to tenant ${tenantId}`);
+    res.json({
+      success: true,
+      message: `${pointsToCredit} Green Points credited successfully!`,
+      pointsCredited: pointsToCredit,
+    });
+  } catch (error) {
+    console.error("[admin-service] Purchase verify FULL ERROR:", error);
+    res.status(500).json({ error: "Failed to verify purchase", details: error.message });
+  }
+});
+
+// GET /api/admin/points/purchase/history
+// Returns purchase history for the current tenant (or all for superadmin)
+router.get("/points/purchase/history", verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    let query = db.collection("pointsPurchaseOrders");
+
+    if (req.adminRole !== "superadmin") {
+      const tenantId = req.tenantId;
+      if (!tenantId) return res.json({ success: true, purchases: [] });
+      query = query.where("tenantId", "==", tenantId);
+    }
+
+    const snapshot = await query.get();
+    let purchases = snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+      createdAt: doc.data().createdAt?.toDate?.().toISOString() || null,
+      paidAt: doc.data().paidAt?.toDate?.().toISOString() || null,
+    }));
+
+    if (req.adminRole === "superadmin") {
+      const tenantsSnap = await db.collection("tenants").get();
+      const tenantMap = {};
+      tenantsSnap.docs.forEach((d) => { tenantMap[d.id] = d.data().name; });
+      purchases.forEach((p) => { p.tenantName = tenantMap[p.tenantId] || "Unknown"; });
+    }
+
+    // Sort in memory by createdAt descending
+    purchases.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+
+    res.json({ success: true, purchases });
+  } catch (error) {
+    console.error("[admin-service] Purchase history error:", error.message);
+    res.status(500).json({ error: "Failed to fetch purchase history" });
+  }
+});
+
+// POST /api/admin/points/purchase/fix
+// SUPERADMIN ONLY: manually mark a pending purchase as paid and credit wallet
+// Used to fix orders that succeeded in Razorpay but failed to verify due to backend errors
+router.post("/points/purchase/fix", verifyToken, verifyAdmin, requireSuperadmin, async (req, res) => {
+  const { purchaseDocId } = req.body;
+  if (!purchaseDocId) return res.status(400).json({ error: "purchaseDocId required" });
+
+  try {
+    const purchaseRef = db.collection("pointsPurchaseOrders").doc(purchaseDocId);
+    const purchaseDoc = await purchaseRef.get();
+    if (!purchaseDoc.exists) return res.status(404).json({ error: "Purchase order not found" });
+
+    const purchaseData = purchaseDoc.data();
+    if (purchaseData.status === "paid") {
+      return res.json({ success: true, message: "Already paid", alreadyPaid: true });
+    }
+
+    const tenantId = purchaseData.tenantId;
+    const pointsToCredit = purchaseData.pointsRequested;
+    const nowISO = new Date().toISOString();
+
+    await purchaseRef.update({ status: "paid", paidAt: nowISO, fixedBySuperadmin: true });
+
+    const walletRef = db.collection("tenantPointsWallet").doc(tenantId);
+    const walletDoc = await walletRef.get();
+    if (walletDoc.exists) {
+      const cur = walletDoc.data();
+      await walletRef.update({
+        availablePoints: (cur.availablePoints || 0) + pointsToCredit,
+        totalPurchased: (cur.totalPurchased || 0) + pointsToCredit,
+        updatedAt: nowISO,
+      });
+    } else {
+      await walletRef.set({ tenantId, availablePoints: pointsToCredit, totalPurchased: pointsToCredit, totalDistributed: 0, updatedAt: nowISO });
+    }
+
+    console.log(`[admin-service] ✅ Superadmin manually fixed ${pointsToCredit} pts for tenant ${tenantId}`);
+    res.json({ success: true, message: `${pointsToCredit} pts credited manually`, pointsCredited: pointsToCredit });
+  } catch (error) {
+    console.error("[admin-service] Fix error:", error);
+    res.status(500).json({ error: "Fix failed", details: error.message });
+  }
+});
+
+// POST /api/admin/points/manual-credit
+// SUPERADMIN ONLY: Manually credit points to an admin's wallet without Razorpay
+router.post("/points/manual-credit", verifyToken, verifyAdmin, requireSuperadmin, async (req, res) => {
+  const { tenantId, pointsToCredit } = req.body;
+  if (!tenantId || !pointsToCredit || pointsToCredit <= 0) {
+    return res.status(400).json({ error: "Valid tenantId and pointsToCredit required" });
+  }
+
+  try {
+    const nowISO = new Date().toISOString();
+
+    // 1. Create a fake "paid" purchase order so it shows up in the history ledger
+    const orderRef = await db.collection("pointsPurchaseOrders").add({
+      tenantId,
+      pointsRequested: Number(pointsToCredit),
+      totalAmount: 0, // Manual offline payment or gift
+      pricePerPoint: 0,
+      razorpay_order_id: `manual_${Date.now()}`,
+      razorpay_payment_id: `manual_${Date.now()}`,
+      status: "paid",
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      paidAt: nowISO,
+      isManual: true,
+      creditedBy: req.uid, // Superadmin who did this
+    });
+
+    // 2. Credit the wallet
+    const walletRef = db.collection("tenantPointsWallet").doc(tenantId);
+    const walletDoc = await walletRef.get();
+    if (walletDoc.exists) {
+      const cur = walletDoc.data();
+      await walletRef.update({
+        availablePoints: (cur.availablePoints || 0) + Number(pointsToCredit),
+        totalPurchased: (cur.totalPurchased || 0) + Number(pointsToCredit),
+        updatedAt: nowISO,
+      });
+    } else {
+      await walletRef.set({
+        tenantId,
+        availablePoints: Number(pointsToCredit),
+        totalPurchased: Number(pointsToCredit),
+        totalDistributed: 0,
+        updatedAt: nowISO,
+      });
+    }
+
+    console.log(`[admin-service] ✅ Superadmin manually credited ${pointsToCredit} pts to tenant ${tenantId}`);
+    res.json({ success: true, message: `Successfully credited ${pointsToCredit} points to tenant!` });
+  } catch (error) {
+    console.error("[admin-service] Manual credit error:", error);
+    res.status(500).json({ error: "Manual credit failed", details: error.message });
   }
 });
 

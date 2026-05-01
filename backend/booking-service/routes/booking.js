@@ -20,7 +20,7 @@ const razorpay = new Razorpay({
 router.post("/payment/order", verifyToken, async (req, res) => {
   try {
     const { stationId, duration, recaptchaToken } = req.body;
-    
+
     // Basic reCAPTCHA check (boolean check as per instructions)
     if (!recaptchaToken) {
       return res.status(400).json({ error: "reCAPTCHA verification required" });
@@ -29,7 +29,7 @@ router.post("/payment/order", verifyToken, async (req, res) => {
     const stationDoc = await db.collection("stations").doc(stationId).get();
     if (!stationDoc.exists) return res.status(404).json({ error: "Station not found" });
     const station = stationDoc.data();
-    
+
     if (station.availableSlots <= 0) return res.status(400).json({ error: "No slots" });
 
     // ── Points discount (optional) ────────────────────────────
@@ -105,9 +105,23 @@ router.post("/payment/verify", verifyToken, async (req, res) => {
       const bookingData = {
         userId: req.uid, stationId, stationName: station.name || "", slotDate, slotTime,
         duration: Number(duration), status: "confirmed", totalCost, razorpay_order_id, razorpay_payment_id,
+        tenantId: station.tenantId || null,
         pointsAwarded: false,
+        pointsEarned: 0,
         createdAt: now, updatedAt: now,
       };
+
+      const slotId = `${slotDate}_${slotTime}`;
+      const slotRef = stationRef.collection("slots").doc(slotId);
+      const slotDoc = await transaction.get(slotRef);
+      if (slotDoc.exists) {
+        // Decrement capacity logic or just mark booked. We'll mark as booked since each slot doc is treated as 1 slot.
+        // Wait, if totalSlots > 1, we should allow multiple bookings per slot.
+        const sData = slotDoc.data();
+        const bookedCount = (sData.bookedCount || 0) + 1;
+        const status = bookedCount >= (station.totalSlots || 1) ? "booked" : "available";
+        transaction.update(slotRef, { bookedCount, status, updatedAt: now });
+      }
 
       transaction.set(bookingRef, bookingData);
       transaction.update(stationRef, { availableSlots: station.availableSlots - 1, updatedAt: now });
@@ -120,25 +134,65 @@ router.post("/payment/verify", verifyToken, async (req, res) => {
     // Calculate points: (duration_min / 60) * points_per_hour
     // Handle cases where approvedPointsPerHour might be a string (e.g. "25 pts/hr")
     const rawRate = station.approvedPointsPerHour;
-    const hourlyRate = (typeof rawRate === 'string') 
+    const hourlyRate = (typeof rawRate === 'string')
       ? (parseInt(rawRate.replace(/[^0-9]/g, '')) || 50)
       : (Number(rawRate) || 50);
-      
+
     const sessionPoints = Math.round((Number(duration) / 60) * hourlyRate);
 
-    // Fire-and-forget: award session completion points
-    axios.post(
-      `${process.env.POINTS_SERVICE_URL}/api/points/award`,
-      {
-        userId: req.uid,
-        reason: "session_completed",
-        points: sessionPoints,
-        referenceId: bookingId,
-        checkDuplicate: true,
-        duplicateKey: bookingId,
-      },
-      { headers: { "x-internal-secret": process.env.INTERNAL_SECRET } }
-    ).catch((err) => console.error("[booking-service] Session points failed:", err.message));
+    // Check tenant wallet before awarding points
+    const tenantId = station.tenantId;
+    let shouldAwardPoints = false;
+
+    if (tenantId && sessionPoints > 0) {
+      try {
+        const walletRef = db.collection("tenantPointsWallet").doc(tenantId);
+        const walletDoc = await walletRef.get();
+
+        if (walletDoc.exists && (walletDoc.data().availablePoints || 0) >= sessionPoints) {
+          // Deduct from tenant wallet
+          await walletRef.update({
+            availablePoints: admin.firestore.FieldValue.increment(-sessionPoints),
+            totalDistributed: admin.firestore.FieldValue.increment(sessionPoints),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          shouldAwardPoints = true;
+          console.log(`[booking-service] Deducted ${sessionPoints} pts from tenant ${tenantId} wallet`);
+        } else {
+          console.warn(`[booking-service] Tenant ${tenantId} wallet empty/insufficient (need ${sessionPoints}). Skipping points award.`);
+        }
+      } catch (walletErr) {
+        console.error("[booking-service] Wallet check failed:", walletErr.message);
+        // If wallet check fails, don't award points (safe default)
+      }
+    } else if (!tenantId) {
+      // Stations without tenantId (platform-level) — no wallet needed for superadmin
+      // Don't award points for non-tenant stations unless wallet exists
+      console.log("[booking-service] Station has no tenantId, skipping points award.");
+    }
+
+    // Fire-and-forget: award session completion points (only if wallet had funds)
+    if (shouldAwardPoints) {
+      // Update booking with actual points earned
+      db.collection("bookings").doc(bookingId).update({
+        pointsEarned: sessionPoints,
+      }).catch((err) => console.error("[booking-service] Update pointsEarned failed:", err.message));
+
+      axios.post(
+        `${process.env.POINTS_SERVICE_URL}/api/points/award`,
+        {
+          userId: req.uid,
+          reason: "session_completed",
+          points: sessionPoints,
+          referenceId: bookingId,
+          tenantId: tenantId,
+          stationId: stationId,
+          checkDuplicate: true,
+          duplicateKey: bookingId,
+        },
+        { headers: { "x-internal-secret": process.env.INTERNAL_SECRET } }
+      ).catch((err) => console.error("[booking-service] Session points failed:", err.message));
+    }
 
     // Deduct redeemed points if used
     const { pointsToRedeem } = req.body;
@@ -149,6 +203,8 @@ router.post("/payment/verify", verifyToken, async (req, res) => {
           pointsToRedeem: Number(pointsToRedeem),
           redemptionType: "charging_discount",
           referenceId: bookingId,
+          tenantId: tenantId || null,
+          stationId: stationId,
         },
         { headers: { Authorization: req.headers.authorization } }
       ).catch((err) => console.error("[booking] Points deduction failed:", err.message));
@@ -170,9 +226,9 @@ router.get("/my-bookings", verifyToken, async (req, res) => {
     // Sort manually if index is missing
     bookings.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
     res.json({ success: true, bookings });
-  } catch (e) { 
+  } catch (e) {
     console.error("[my-bookings] Error:", e.message);
-    res.status(500).json({ error: e.message }); 
+    res.status(500).json({ error: e.message });
   }
 });
 
@@ -182,9 +238,9 @@ router.get("/:bookingId", verifyToken, async (req, res) => {
     const doc = await db.collection("bookings").doc(req.params.bookingId).get();
     if (!doc.exists) return res.status(404).json({ error: "Not found" });
     res.json({ success: true, booking: { bookingId: doc.id, ...doc.data() } });
-  } catch (e) { 
+  } catch (e) {
     console.error("[get-booking] Error:", e.message);
-    res.status(500).json({ error: e.message }); 
+    res.status(500).json({ error: e.message });
   }
 });
 

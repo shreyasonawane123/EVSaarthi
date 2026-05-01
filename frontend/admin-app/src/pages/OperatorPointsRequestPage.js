@@ -20,6 +20,7 @@ export default function OperatorPointsRequestPage() {
   const navigate = useNavigate();
   const [requests, setRequests] = useState([]);
   const [station, setStation] = useState(null);
+  const [wallet, setWallet] = useState(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [pointsPerHour, setPointsPerHour] = useState("");
@@ -50,6 +51,13 @@ export default function OperatorPointsRequestPage() {
           headers: { Authorization: `Bearer ${token}` },
         });
         setRequests(reqRes.data.requests || []);
+        // Load wallet balance
+        try {
+          const walletRes = await axios.get(`${API}/api/admin/points/wallet`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          setWallet(walletRes.data.wallet || null);
+        } catch (e) { /* wallet may not exist yet */ }
       } catch (err) {
         console.error("Failed to load operator data:", err.message);
       } finally {
@@ -107,6 +115,38 @@ export default function OperatorPointsRequestPage() {
         <div style={centered}><div style={spinner} /></div>
       ) : (
         <>
+          {/* Wallet Balance Card */}
+          {wallet && (
+            <div style={{ ...statusCard, background: "linear-gradient(135deg, #f0fdf4, #dcfce7)", border: "1.5px solid #bbf7d0" }}>
+              <h2 style={{ ...sectionTitle, color: "#15803d" }}>🏦 Owner's Green Points Balance</h2>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+                <div style={{ background: "rgba(255,255,255,0.7)", borderRadius: 12, padding: "12px 16px", textAlign: "center", border: "1px solid #bbf7d0" }}>
+                  <p style={{ margin: 0, fontSize: 10, fontWeight: 700, color: "#6b7280", textTransform: "uppercase" }}>Available</p>
+                  <p style={{ margin: "4px 0 0", fontSize: 22, fontWeight: 900, color: (wallet.availablePoints || 0) > 0 ? "#15803d" : "#dc2626" }}>
+                    {(wallet.availablePoints || 0).toLocaleString("en-IN")}
+                  </p>
+                </div>
+                <div style={{ background: "rgba(255,255,255,0.7)", borderRadius: 12, padding: "12px 16px", textAlign: "center", border: "1px solid #bbf7d0" }}>
+                  <p style={{ margin: 0, fontSize: 10, fontWeight: 700, color: "#6b7280", textTransform: "uppercase" }}>Purchased</p>
+                  <p style={{ margin: "4px 0 0", fontSize: 22, fontWeight: 900, color: "#1a1a1a" }}>
+                    {(wallet.totalPurchased || 0).toLocaleString("en-IN")}
+                  </p>
+                </div>
+                <div style={{ background: "rgba(255,255,255,0.7)", borderRadius: 12, padding: "12px 16px", textAlign: "center", border: "1px solid #bbf7d0" }}>
+                  <p style={{ margin: 0, fontSize: 10, fontWeight: 700, color: "#6b7280", textTransform: "uppercase" }}>Distributed</p>
+                  <p style={{ margin: "4px 0 0", fontSize: 22, fontWeight: 900, color: "#1a1a1a" }}>
+                    {(wallet.totalDistributed || 0).toLocaleString("en-IN")}
+                  </p>
+                </div>
+              </div>
+              {(wallet.availablePoints || 0) === 0 && (
+                <p style={{ margin: "12px 0 0", fontSize: 12, fontWeight: 700, color: "#dc2626", textAlign: "center" }}>
+                  ⚠️ No points available. Users will not earn points until the owner purchases more.
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Current Status Card */}
           {station && (
             <div style={statusCard}>

@@ -104,6 +104,7 @@ const StationsPage = () => {
   const [tenants, setTenants] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tenantFilter, setTenantFilter] = useState("all");
+  const [visibleCount, setVisibleCount] = useState(10);
 
   // Modal states
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -607,8 +608,8 @@ const StationsPage = () => {
   return (
     <div className="p-2 sm:p-4 lg:p-6 max-w-7xl mx-auto space-y-6 transition-all">
       {/* TOP BAR */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
           <h1 className="text-2xl font-black text-[#1A1A1A]">Charging Stations</h1>
           <span className="bg-[#FFFBEB] text-[#D97706] px-3 py-1 rounded-full text-xs font-bold shadow-sm border border-[#FEF3C7]">
             {filteredStations.length} Total
@@ -711,7 +712,7 @@ const StationsPage = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {filteredStations.map(st => (
+              {filteredStations.slice(0, visibleCount).map(st => (
                 <tr key={st.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
                   <td className="p-3 sm:p-4">
                     <div className="flex items-center gap-2">
@@ -797,6 +798,16 @@ const StationsPage = () => {
             </tbody>
           </table>
         </div>
+        {filteredStations.length > visibleCount && (
+          <div className="p-4 text-center border-t border-gray-100 bg-gray-50">
+            <button
+              onClick={() => setVisibleCount((prev) => prev + 10)}
+              className="px-6 py-2 bg-white border border-gray-200 rounded-full text-sm font-bold text-gray-700 hover:bg-gray-100 transition-colors shadow-sm"
+            >
+              Load More
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ADD / EDIT MODAL */}

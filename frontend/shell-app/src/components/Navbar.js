@@ -38,7 +38,7 @@ const Navbar = () => {
 
   const open = Boolean(anchorEl);
   
-  if (location.pathname === '/login' || location.pathname.startsWith('/admin')) return null;
+  if (location.pathname === '/' || location.pathname === '/login' || location.pathname.startsWith('/admin')) return null;
 
   const handleMenuOpen = (event) => setAnchorEl(event.currentTarget);
   const handleMenuClose = () => setAnchorEl(null);
@@ -53,8 +53,8 @@ const Navbar = () => {
     { label: 'Dashboard', path: '/dashboard', icon: <DashboardIcon fontSize="small" /> },
     { label: 'Stations', path: '/map', icon: <EvStationIcon fontSize="small" /> },
     { label: 'Bookings', path: '/booking', icon: <CalendarMonthIcon fontSize="small" /> },
-    { label: 'Rewards', path: '/rewards', icon: <EmojiEventsIcon fontSize="small" /> },
-    { label: 'Points', path: '/points-history', icon: <EmojiEventsIcon fontSize="small" /> },
+    { label: 'Redeem Points', path: '/rewards', icon: <EmojiEventsIcon fontSize="small" /> },
+    { label: 'Rewards', path: '/points-history', icon: <EmojiEventsIcon fontSize="small" /> },
   ];
 
   const isActive = (path) => location.pathname === path;
