@@ -30,12 +30,7 @@ const ProfilePage = () => {
   const { currentUser } = useAuth();
   const navigate = useNavigate();
 
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
-  useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 1024);
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
+
 
   // ── Personal Info state ─────────────────────────────────────
   const [infoForm, setInfoForm] = useState({
@@ -56,10 +51,10 @@ const ProfilePage = () => {
     searchCity.trim() === ""
       ? cityData
       : cityData.filter(
-          (item) =>
-            item.city.toLowerCase().includes(searchCity.toLowerCase()) ||
-            item.state.toLowerCase().includes(searchCity.toLowerCase())
-        );
+        (item) =>
+          item.city.toLowerCase().includes(searchCity.toLowerCase()) ||
+          item.state.toLowerCase().includes(searchCity.toLowerCase())
+      );
 
   // ── Load on mount ───────────────────────────────────────────
   useEffect(() => {
@@ -140,20 +135,9 @@ const ProfilePage = () => {
         </div>
       </div>
 
-      <div 
-        className="flex flex-col lg:flex-row gap-4 lg:gap-6 items-start"
-        style={isMobile ? { display: 'flex', flexDirection: 'column', height: 'calc(100vh - 64px)', overflow: 'hidden', gap: '16px' } : {}}
-      >
+      <div className="flex flex-col lg:flex-row gap-4 lg:gap-6 items-start">
         {/* ── LEFT — AVATAR CARD ──────────────────────────────── */}
-        <div 
-          className="w-full lg:w-[280px] lg:flex-shrink-0 bg-white rounded-2xl border border-gray-200 shadow-sm px-4 py-3 lg:p-8 lg:text-center"
-          style={{
-            position: 'sticky',
-            top: '24px',
-            alignSelf: 'flex-start',
-            ...(isMobile ? { flexShrink: 0, maxHeight: '160px', overflowY: 'hidden' } : {})
-          }}
-        >
+        <div className="w-full lg:w-[280px] lg:flex-shrink-0 bg-white rounded-2xl border border-gray-200 shadow-sm px-4 py-3 lg:p-8 lg:text-center lg:sticky lg:top-6 lg:self-start">
           <div className="flex lg:block items-center gap-3 lg:gap-4 mb-0 lg:mb-0 lg:text-center">
             <div className="relative inline-block lg:mb-6 flex-shrink-0">
               <div className="w-10 h-10 lg:w-[88px] lg:h-[88px] rounded-full p-0.5 lg:p-1 border-2 border-[#EAB308] shadow-[0_4px_14px_rgba(234,179,8,0.3)] bg-white overflow-hidden">
@@ -180,9 +164,9 @@ const ProfilePage = () => {
               </div>
             </div>
           </div>
-          
+
           <div className="hidden lg:block w-full h-px bg-gray-100 my-6" />
-          
+
           <div className="hidden lg:block space-y-4">
             <AvatarStat label="Account Status" value="Active" color="text-[#16A34A]" />
             <AvatarStat label="Membership Plan" value="Free" color="text-[#16A34A]" />
@@ -191,30 +175,27 @@ const ProfilePage = () => {
 
           {/* Mobile stats (horizontal row) */}
           <div className="flex lg:hidden justify-between items-center mt-3 pt-3 border-t border-gray-100 px-2">
-             <div className="flex flex-col items-center">
-                <span className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mb-0.5">Status</span>
-                <span className="text-[11px] font-black text-[#16A34A]">Active</span>
-             </div>
-             <div className="w-px h-6 bg-gray-100"></div>
-             <div className="flex flex-col items-center">
-                <span className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mb-0.5">Plan</span>
-                <span className="text-[11px] font-black text-[#16A34A]">Free</span>
-             </div>
-             <div className="w-px h-6 bg-gray-100"></div>
-             <div className="flex flex-col items-center">
-                <span className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mb-0.5">Points</span>
-                <span className="text-[11px] font-black text-[#D97706]">{pointsBalance.toLocaleString("en-IN")} pts</span>
-             </div>
+            <div className="flex flex-col items-center">
+              <span className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mb-0.5">Status</span>
+              <span className="text-[11px] font-black text-[#16A34A]">Active</span>
+            </div>
+            <div className="w-px h-6 bg-gray-100"></div>
+            <div className="flex flex-col items-center">
+              <span className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mb-0.5">Plan</span>
+              <span className="text-[11px] font-black text-[#16A34A]">Free</span>
+            </div>
+            <div className="w-px h-6 bg-gray-100"></div>
+            <div className="flex flex-col items-center">
+              <span className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mb-0.5">Points</span>
+              <span className="text-[11px] font-black text-[#D97706]">{pointsBalance.toLocaleString("en-IN")} pts</span>
+            </div>
           </div>
         </div>
 
         {/* ── RIGHT — PERSONAL INFO FORM ───────────────────────── */}
-        <div 
-          className="flex-1 min-w-0 mb-10"
-          style={isMobile ? { flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch', minHeight: 0, paddingBottom: '80px', marginTop: '0px' } : {}}
-        >
+        <div className="flex-1 w-full min-w-0 mb-10">
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm">
-            <div 
+            <div
               className="bg-[#16A34A] px-4 py-4 lg:px-8 lg:py-5 flex items-center gap-3 flex-shrink-0 rounded-t-2xl"
               style={{ paddingTop: '16px', paddingBottom: '16px' }}
             >
@@ -264,13 +245,13 @@ const ProfilePage = () => {
                     <option value="">Select your city</option>
                     {searchCity.trim() !== ""
                       ? filteredCities.map((item) => (
-                          <option key={item.id} value={item.city}>{item.city} — {item.state}</option>
-                        ))
+                        <option key={item.id} value={item.city}>{item.city} — {item.state}</option>
+                      ))
                       : Object.entries(groupedCities).sort().map(([state, cities]) => (
-                          <optgroup key={state} label={state}>
-                            {cities.map((city) => <option key={city} value={city}>{city}</option>)}
-                          </optgroup>
-                        ))}
+                        <optgroup key={state} label={state}>
+                          {cities.map((city) => <option key={city} value={city}>{city}</option>)}
+                        </optgroup>
+                      ))}
                   </select>
                 </div>
                 <div className="space-y-2 md:col-span-2">

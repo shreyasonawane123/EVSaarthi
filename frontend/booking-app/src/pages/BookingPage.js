@@ -7,14 +7,14 @@ import { useAuth } from "../context/AuthContext";
 import PointsRedemptionToggle from "../components/PointsRedemptionToggle";
 import {
   EvStation, LocationOn, LocalOffer, InfoOutlined, WarningAmber,
-  Star as StarIcon, StarBorder as StarBorderIcon, 
+  Star as StarIcon, StarBorder as StarBorderIcon,
   Verified as VerifiedIcon, PhotoCamera as PhotoCameraIcon,
   RateReview as RateReviewIcon, EmojiEvents as EmojiEventsIcon
 } from "@mui/icons-material";
-import { 
-  Alert, Snackbar, Dialog, DialogTitle, DialogContent, 
-  DialogActions, Button, Typography, TextField, Rating, 
-  IconButton, CircularProgress 
+import {
+  Alert, Snackbar, Dialog, DialogTitle, DialogContent,
+  DialogActions, Button, Typography, TextField, Rating,
+  IconButton, CircularProgress
 } from "@mui/material";
 import { storage } from "../firebase/config";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
@@ -44,7 +44,7 @@ const BookingPage = () => {
   const [bookingLoading, setBookingLoading] = useState(false);
   const [pointsToRedeem, setPointsToRedeem] = useState(0);
   const [discountAmount, setDiscountAmount] = useState(0);
-  
+
   // ReCAPTCHA State
   const recaptchaRef = useRef(null);
   const [recaptchaToken, setRecaptchaToken] = useState(null);
@@ -54,12 +54,12 @@ const BookingPage = () => {
   const [reviews, setReviews] = useState([]);
   const [loadingReviews, setLoadingReviews] = useState(true);
   const [reviewModal, setReviewModal] = useState(false);
-  const [reviewData, setReviewData] = useState({ rating: 5, text: "", photo: null, uploading: false });
+  const [reviewData, setReviewData] = useState({ rating: 5, text: "", photo: null, uploading: false, bookingId: "" });
 
   // Snackbar & Dialog State
   const [snackbar, setSnackbar] = useState({ open: false, message: "", severity: "info" });
   const showNotify = (message, severity = "info") => setSnackbar({ open: true, message, severity });
-  
+
   const [confirmDialog, setConfirmDialog] = useState({ open: false, title: "", message: "", onConfirm: null });
   const openConfirm = (title, message, onConfirm) => setConfirmDialog({ open: true, title, message, onConfirm });
 
@@ -89,7 +89,7 @@ const BookingPage = () => {
       try {
         const res = await axios.get(`${GATEWAY_URL}/api/stations/${stationId}/slots?date=${selectedDate}`);
         setTimeSlots(res.data.slots || []);
-      } catch(err) {
+      } catch (err) {
         setTimeSlots([]);
         console.error("Failed to fetch slots", err);
       } finally {
@@ -131,7 +131,7 @@ const BookingPage = () => {
 
         setLoading(false);
         setLoadingBookings(false);
-        
+
         // 4. Fetch Reviews (Can happen alongside or slightly after)
         fetchReviews();
       } catch (err) {
@@ -159,7 +159,7 @@ const BookingPage = () => {
         headers: { Authorization: `Bearer ${token}` }
       });
       setBookings(bRes.data.bookings || []);
-    } catch(e) {}
+    } catch (e) { }
   };
 
   const onProceedClick = () => {
@@ -221,7 +221,7 @@ const BookingPage = () => {
             setDiscountAmount(0);
             setRecaptchaToken(null);
             if (recaptchaRef.current) recaptchaRef.current.reset();
-            
+
             // Reload data
             const stRes = await axios.get(`${GATEWAY_URL}/api/stations/${stationId}`, config);
             setStation(stRes.data.station);
@@ -264,6 +264,7 @@ const BookingPage = () => {
 
   const handleReviewSubmit = async () => {
     if (!reviewData.text) return showNotify("Please add some feedback", "warning");
+    if (!reviewData.bookingId) return showNotify("Please select a booking to review", "warning");
     setReviewData(prev => ({ ...prev, uploading: true }));
 
     try {
@@ -284,13 +285,13 @@ const BookingPage = () => {
       // 2. Get GPS Location
       let userLat = null, userLng = null;
       try {
-        const pos = await new Promise((res, rej) => 
+        const pos = await new Promise((res, rej) =>
           navigator.geolocation.getCurrentPosition(res, rej, { timeout: 5000, enableHighAccuracy: true })
         );
         userLat = pos.coords.latitude;
         userLng = pos.coords.longitude;
-      } catch (e) { 
-        console.warn("GPS capture failed for review:", e.message); 
+      } catch (e) {
+        console.warn("GPS capture failed for review:", e.message);
       }
 
       // 3. Submit Review
@@ -300,13 +301,18 @@ const BookingPage = () => {
         text: reviewData.text,
         photoUrl,
         userLat,
-        userLng
+        userLng,
+        bookingId: reviewData.bookingId
       }, { headers: { Authorization: `Bearer ${token}` } });
 
       showNotify("Review submitted for moderation!", "success");
       setReviewModal(false);
-      setReviewData({ rating: 5, text: "", photo: null, uploading: false });
-      
+      setReviewData({ rating: 5, text: "", photo: null, uploading: false, bookingId: "" });
+
+      // Reload bookings so the reviewed one disappears from dropdown
+      await loadBookings();
+      fetchReviews();
+
       // OPTIONAL: Refresh reviews list locally if moderation is off (not the case here)
       // fetchReviews();
 
@@ -324,8 +330,8 @@ const BookingPage = () => {
 
   // Standardized Time-Based Logic: (Duration/60) * Price
   const price = station?.pricePerUnit ? Number(station.pricePerUnit) : 10;
-  
-  const estimatedCost = duration 
+
+  const estimatedCost = duration
     ? ((Number(duration) / 60) * price).toFixed(2)
     : "0.00";
 
@@ -333,7 +339,7 @@ const BookingPage = () => {
 
   return (
     <div className="max-w-4xl mx-auto p-4 md:p-8 space-y-8 font-sans">
-      
+
       {/* SECTION 1: Station Info */}
       <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 flex flex-col md:flex-row gap-6 justify-between items-start">
         <div>
@@ -342,21 +348,21 @@ const BookingPage = () => {
             <LocationOn fontSize="small" className="mr-1" />
             {station?.address}, {station?.city}
           </div>
-          
+
           {/* 📍 RATING SUMMARY (New) */}
           <div className="flex items-center gap-2 mb-4">
-             <div className="flex items-center bg-yellow-50 px-3 py-1 rounded-lg border border-yellow-100">
-                <StarIcon sx={{ color: '#EAB308', fontSize: 18, mr: 0.5 }} />
-                <span className="font-black text-sm text-[#1A1A1A]">
-                  {station?.rating ? station.rating.toFixed(1) : "No ratings"}
-                </span>
-             </div>
-             <button 
-               onClick={() => document.getElementById('reviews-section').scrollIntoView({ behavior: 'smooth' })}
-               className="text-gray-400 text-xs font-bold hover:text-[#EAB308] hover:underline"
-             >
-               ({reviews.length} community reviews)
-             </button>
+            <div className="flex items-center bg-yellow-50 px-3 py-1 rounded-lg border border-yellow-100">
+              <StarIcon sx={{ color: '#EAB308', fontSize: 18, mr: 0.5 }} />
+              <span className="font-black text-sm text-[#1A1A1A]">
+                {station?.rating ? station.rating.toFixed(1) : "No ratings"}
+              </span>
+            </div>
+            <button
+              onClick={() => document.getElementById('reviews-section').scrollIntoView({ behavior: 'smooth' })}
+              className="text-gray-400 text-xs font-bold hover:text-[#EAB308] hover:underline"
+            >
+              ({reviews.length} community reviews)
+            </button>
           </div>
 
           <div className="flex flex-wrap gap-2">
@@ -373,13 +379,13 @@ const BookingPage = () => {
 
         {/* 📍 QUICK WRITE REVIEW (New) */}
         <div className="flex flex-col gap-3 items-center">
-          <button 
+          <button
             onClick={() => setReviewModal(true)}
             className="flex items-center gap-2 bg-[#1A1A1A] text-white px-5 py-3 rounded-xl font-bold hover:bg-gray-800 transition-all shadow-md active:scale-95 whitespace-nowrap"
           >
             <RateReviewIcon fontSize="small" /> Write Review
           </button>
-          
+
           <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 min-w-[160px] text-center">
             <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Available Slots</div>
             <div className={`text-3xl font-black ${station?.availableSlots > 0 ? 'text-green-600' : 'text-red-500'}`}>
@@ -410,8 +416,8 @@ const BookingPage = () => {
                     key={d.id}
                     onClick={() => setSelectedDate(d.fullDate)}
                     className={`flex-shrink-0 px-4 py-3 rounded-xl border-2 transition-all min-w-[100px] text-center
-                      ${selectedDate === d.fullDate 
-                        ? 'border-[#EAB308] bg-[#FFFBEB] shadow-sm' 
+                      ${selectedDate === d.fullDate
+                        ? 'border-[#EAB308] bg-[#FFFBEB] shadow-sm'
                         : 'border-gray-200 hover:border-gray-300'}`}
                   >
                     <div className={`font-black text-sm ${selectedDate === d.fullDate ? 'text-[#D97706]' : 'text-gray-500'}`}>{d.label}</div>
@@ -438,10 +444,10 @@ const BookingPage = () => {
                       disabled={!selectedDate}
                       onClick={() => setSelectedTime(t)}
                       className={`py-2 rounded-lg text-sm font-bold border-2 transition-all
-                        ${!selectedDate ? 'opacity-50 cursor-not-allowed border-gray-100 bg-gray-50' : 
-                          selectedTime === t 
-                          ? 'border-[#EAB308] bg-[#EAB308] text-white shadow-md' 
-                          : 'border-gray-200 hover:border-gray-300 text-gray-700'}`}
+                        ${!selectedDate ? 'opacity-50 cursor-not-allowed border-gray-100 bg-gray-50' :
+                          selectedTime === t
+                            ? 'border-[#EAB308] bg-[#EAB308] text-white shadow-md'
+                            : 'border-gray-200 hover:border-gray-300 text-gray-700'}`}
                     >
                       {t}
                     </button>
@@ -463,8 +469,8 @@ const BookingPage = () => {
                     key={dur.val}
                     onClick={() => setDuration(dur.val)}
                     className={`flex-1 py-3 rounded-xl border-2 font-black transition-all
-                      ${duration === dur.val 
-                        ? 'border-[#1A1A1A] bg-[#1A1A1A] text-white' 
+                      ${duration === dur.val
+                        ? 'border-[#1A1A1A] bg-[#1A1A1A] text-white'
                         : 'border-gray-200 hover:border-gray-300 text-gray-600'}`}
                   >
                     {dur.label}
@@ -507,14 +513,14 @@ const BookingPage = () => {
                   </div>
                 )}
               </div>
-              
+
               <button
                 onClick={onProceedClick}
                 disabled={!selectedDate || !selectedTime || !duration || bookingLoading}
                 className={`py-4 px-10 rounded-xl font-black text-lg transition-all w-full sm:w-auto shadow-lg
                   ${!selectedDate || !selectedTime || !duration
-                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none' 
-                    : bookingLoading 
+                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none'
+                    : bookingLoading
                       ? 'bg-[#16A34A] text-white opacity-80 cursor-wait'
                       : 'bg-[#16A34A] text-white hover:bg-[#15803d] hover:-translate-y-1'}`}
               >
@@ -533,7 +539,7 @@ const BookingPage = () => {
 
       <div className="mt-12 pt-8 border-t border-gray-200">
         <h2 className="text-2xl font-black text-[#1A1A1A] mb-6">My Bookings</h2>
-        
+
         {loadingBookings ? (
           <div className="text-gray-500 font-bold p-4">Loading your bookings...</div>
         ) : bookings.length === 0 ? (
@@ -546,28 +552,28 @@ const BookingPage = () => {
               <div key={b.bookingId} className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden group">
                 {/* Status bar left */}
                 <div className={`absolute left-0 top-0 bottom-0 w-1.5 
-                  ${b.status === 'confirmed' ? 'bg-green-500' : 
-                    b.status === 'cancelled' ? 'bg-red-500' : 'bg-gray-400'}`} 
+                  ${b.status === 'confirmed' ? 'bg-green-500' :
+                    b.status === 'cancelled' ? 'bg-red-500' : 'bg-gray-400'}`}
                 />
-                
+
                 <div className="flex justify-between items-start mb-3 pl-2">
                   <div>
                     <h3 className="font-black text-[17px] text-[#1A1A1A] pb-0.5">{b.stationName}</h3>
                     <div className="text-xs text-gray-500 font-bold">{b.slotDate} at {b.slotTime}</div>
                   </div>
                   <span className={`px-3 py-1 text-[10px] font-black uppercase rounded-full tracking-wider border
-                    ${b.status === 'confirmed' ? 'bg-green-50 text-green-700 border-green-200' : 
+                    ${b.status === 'confirmed' ? 'bg-green-50 text-green-700 border-green-200' :
                       b.status === 'cancelled' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>
                     {b.status}
                   </span>
                 </div>
-                
+
                 <div className="pl-2 flex justify-between items-end mt-4">
                   <div>
                     <div className="text-xs font-bold text-gray-400 mb-0.5 uppercase tracking-wide">Total Cost</div>
                     <div className="font-black text-lg text-[#1A1A1A]">₹{b.totalCost}</div>
                   </div>
-                  
+
                 </div>
               </div>
             ))}
@@ -584,8 +590,8 @@ const BookingPage = () => {
           </div>
           <div className="text-right">
             <div className="text-3xl font-black text-[#1A1A1A] flex items-center justify-end gap-1">
-               {station?.rating ? station.rating.toFixed(1) : "0.0"}
-               <StarIcon sx={{ color: '#EAB308' }} />
+              {station?.rating ? station.rating.toFixed(1) : "0.0"}
+              <StarIcon sx={{ color: '#EAB308' }} />
             </div>
             <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{reviews.length} Total Reviews</div>
           </div>
@@ -642,9 +648,9 @@ const BookingPage = () => {
         </DialogContent>
         <DialogActions sx={{ p: 3 }}>
           <Button onClick={() => setConfirmDialog({ ...confirmDialog, open: false })} sx={{ fontWeight: 'bold', color: 'gray.500' }}>Back</Button>
-          <Button 
-             onClick={() => { confirmDialog.onConfirm(); setConfirmDialog({ ...confirmDialog, open: false }); }} 
-             variant="contained" color="error" sx={{ fontWeight: 'black', borderRadius: '12px', px: 4, py: 1, boxShadow: 'none' }}>
+          <Button
+            onClick={() => { confirmDialog.onConfirm(); setConfirmDialog({ ...confirmDialog, open: false }); }}
+            variant="contained" color="error" sx={{ fontWeight: 'black', borderRadius: '12px', px: 4, py: 1, boxShadow: 'none' }}>
             Yes, Cancel
           </Button>
         </DialogActions>
@@ -674,14 +680,14 @@ const BookingPage = () => {
           <div className="space-y-6 pt-2">
             <div>
               <Typography variant="caption" sx={{ fontWeight: 'bold', color: 'gray.500', display: 'block', mb: 1, textTransform: 'uppercase' }}>Select Rating</Typography>
-              <Rating 
-                size="large" 
-                value={reviewData.rating} 
-                onChange={(_, val) => setReviewData(prev => ({ ...prev, rating: val }))} 
+              <Rating
+                size="large"
+                value={reviewData.rating}
+                onChange={(_, val) => setReviewData(prev => ({ ...prev, rating: val }))}
                 sx={{ color: '#EAB308' }}
               />
             </div>
-            
+
             <TextField
               fullWidth
               multiline
@@ -693,11 +699,11 @@ const BookingPage = () => {
             />
 
             <div className="flex items-center gap-4">
-              <input 
-                type="file" 
-                accept="image/*" 
-                hidden 
-                id="photo-upload" 
+              <input
+                type="file"
+                accept="image/*"
+                hidden
+                id="photo-upload"
                 onChange={(e) => setReviewData(prev => ({ ...prev, photo: e.target.files[0] }))}
               />
               <label htmlFor="photo-upload">
@@ -707,7 +713,40 @@ const BookingPage = () => {
               </label>
               {reviewData.photo && <Typography variant="caption" sx={{ fontWeight: 'bold', color: 'green.600' }}>{reviewData.photo.name} ready</Typography>}
             </div>
-            
+
+            {/* Booking Selector — user must choose which booking to review */}
+            {(() => {
+              const reviewableBookings = bookings.filter(b =>
+                b.status === 'confirmed' && b.stationId === stationId && !b.reviewSubmitted
+              );
+              return reviewableBookings.length === 0 ? (
+                <Alert severity="warning" sx={{ borderRadius: '12px', fontWeight: 'bold' }}>
+                  No completed bookings available to review at this station.
+                </Alert>
+              ) : (
+                <div>
+                  <Typography variant="caption" sx={{ fontWeight: 'bold', color: 'gray.500', display: 'block', mb: 1, textTransform: 'uppercase' }}>Select Booking to Review</Typography>
+                  <select
+                    value={reviewData.bookingId}
+                    onChange={(e) => setReviewData(prev => ({ ...prev, bookingId: e.target.value }))}
+                    style={{
+                      width: '100%', padding: '12px 14px', borderRadius: '12px',
+                      border: '2px solid #e5e7eb', fontSize: '14px', fontWeight: '600',
+                      color: reviewData.bookingId ? '#1A1A1A' : '#9CA3AF',
+                      outline: 'none', cursor: 'pointer', background: '#fff',
+                    }}
+                  >
+                    <option value="">— Choose a booking —</option>
+                    {reviewableBookings.map(b => (
+                      <option key={b.bookingId} value={b.bookingId}>
+                        {b.slotDate} at {b.slotTime} • ₹{b.totalCost}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              );
+            })()}
+
             <Alert severity="info" sx={{ borderRadius: '12px', fontWeight: 'bold' }}>
               Your visit status will be auto-detected via GPS for a "Verified" badge.
             </Alert>
@@ -715,10 +754,10 @@ const BookingPage = () => {
         </DialogContent>
         <DialogActions sx={{ p: 4 }}>
           <Button onClick={() => setReviewModal(false)} disabled={reviewData.uploading} sx={{ fontWeight: 'bold', color: 'gray.500' }}>Cancel</Button>
-          <Button 
+          <Button
             onClick={handleReviewSubmit}
             disabled={reviewData.uploading}
-            variant="contained" 
+            variant="contained"
             sx={{ bgcolor: '#EAB308', color: '#1A1A1A', fontWeight: '900', borderRadius: '12px', px: 4, '&:hover': { bgcolor: '#d9a300' } }}
           >
             {reviewData.uploading ? <CircularProgress size={20} /> : "Submit Review"}

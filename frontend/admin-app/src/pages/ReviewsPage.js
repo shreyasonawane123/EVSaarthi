@@ -18,6 +18,7 @@ const ReviewsPage = () => {
   const [reviews, setReviews] = useState([]);
   const [tenants, setTenants] = useState([]);
   const [selectedTenant, setSelectedTenant] = useState('all');
+  const [visibleCount, setVisibleCount] = useState(10);
   const [loading, setLoading] = useState(true);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
 
@@ -112,14 +113,14 @@ const ReviewsPage = () => {
 
   return (
     <div className="p-6 md:p-10 max-w-7xl mx-auto">
-      <div className="flex justify-between items-center mb-8">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
         <div>
           <h1 className="text-2xl font-black text-[#1A1A1A] flex items-center gap-2">
             <ReviewIcon className="text-[#EAB308]" /> Review Moderation
           </h1>
           <p className="text-gray-500 text-sm font-medium mt-1">Approve or reject community station reviews</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
           <button 
             onClick={handleApproveAll}
             disabled={!filteredReviews.some(r => r.status === 'pending')}
@@ -158,8 +159,8 @@ const ReviewsPage = () => {
           <p className="text-gray-400 font-bold">No reviews found for this selection.</p>
         </div>
       ) : (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          <table className="w-full text-left">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-x-auto">
+          <table className="w-full text-left min-w-[800px]">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-100 text-xs font-black uppercase tracking-widest text-gray-400">
                 <th className="px-6 py-4">User & Date</th>
@@ -172,7 +173,7 @@ const ReviewsPage = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filteredReviews.map((rev) => (
+              {filteredReviews.slice(0, visibleCount).map((rev) => (
                 <tr key={`${rev.stationId}-${rev.id}`} className="hover:bg-gray-50/50 transition-colors">
                   <td className="px-6 py-4">
                     <div className="font-bold text-sm text-gray-800">{rev.userName}</div>
@@ -236,6 +237,16 @@ const ReviewsPage = () => {
               ))}
             </tbody>
           </table>
+          {!loading && filteredReviews.length > visibleCount && (
+            <div className="p-4 text-center border-t border-gray-100 bg-gray-50">
+              <button
+                onClick={() => setVisibleCount((prev) => prev + 10)}
+                className="px-6 py-2 bg-white border border-gray-200 rounded-full text-sm font-bold text-gray-700 hover:bg-gray-100 transition-colors shadow-sm"
+              >
+                Load More
+              </button>
+            </div>
+          )}
         </div>
       )}
 

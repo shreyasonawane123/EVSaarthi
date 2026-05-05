@@ -46,3 +46,37 @@ code {
 .pulsar {
   animation: leaflet-pulsar 1.5s ease-out infinite;
 }
+
+/* Responsive Map Layout */
+.map-layout {
+  height: 100vh;
+  display: flex;
+  flex-direction: row;
+}
+.sidebar-container {
+  width: 340px;
+  background: #fff;
+  border-right: 1px solid #E5E7EB;
+  display: flex;
+  flex-direction: column;
+}
+.map-container-wrap {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  height: 100vh;
+}
+@media (max-width: 768px) {
+  .map-layout {
+    flex-direction: column-reverse;
+  }
+  .sidebar-container {
+    width: 100%;
+    height: 45vh;
+    border-right: none;
+    border-top: 1px solid #E5E7EB;
+  }
+  .map-container-wrap {
+    height: 55vh !important;
+  }
+}

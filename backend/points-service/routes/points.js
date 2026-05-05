@@ -15,13 +15,26 @@ const { generateCode } = require("../utils/referralGenerator");
 // Idempotent via checkDuplicate flag.
 // ─────────────────────────────────────────────────────────────────────────────
 router.post("/award", verifyInternalSecret, async (req, res) => {
-  const { userId, reason, points, referenceId, checkDuplicate, duplicateKey } = req.body;
+  const { userId, reason, points, referenceId, checkDuplicate, duplicateKey, tenantId, stationId } = req.body;
 
   if (!userId || !reason || !points) {
     return res.status(400).json({ error: "userId, reason, and points are required" });
   }
 
   try {
+    // ── Tenant green points enabled check ───────────────────────
+    if (tenantId) {
+      const tenantDoc = await db.collection("tenants").doc(tenantId).get();
+      if (tenantDoc.exists && tenantDoc.data().greenPointsEnabled === false) {
+        return res.json({
+          success: true,
+          skipped: true,
+          reason: "tenant_points_disabled",
+          message: "Green points are disabled for this tenant"
+        });
+      }
+    }
+
     // ── Idempotency check ───────────────────────────────────────
     if (checkDuplicate && duplicateKey) {
       const dupSnap = await db
@@ -61,6 +74,16 @@ router.post("/award", verifyInternalSecret, async (req, res) => {
     const ledgerRef = db.collection("pointsLedger").doc();
     const now = admin.firestore.FieldValue.serverTimestamp();
 
+    // Compute expiry date from config (default 365 days)
+    let expiryDays = 365;
+    try {
+      const cfgDoc = await db.collection("pointsConfig").doc("settings").get();
+      if (cfgDoc.exists && cfgDoc.data().pointsExpiryDays) {
+        expiryDays = Number(cfgDoc.data().pointsExpiryDays);
+      }
+    } catch (_) { /* use default */ }
+    const expiresAt = new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000).toISOString();
+
     await db.runTransaction(async (transaction) => {
       // Write ledger entry
       transaction.set(ledgerRef, {
@@ -69,7 +92,10 @@ router.post("/award", verifyInternalSecret, async (req, res) => {
         points: Number(points),
         reason,
         referenceId: referenceId || null,
+        tenantId: tenantId || null,
+        stationId: stationId || null,
         balanceAfter: newTotal,
+        expiresAt,
         createdAt: now,
       });
 
@@ -186,6 +212,7 @@ router.get("/history", verifyToken, async (req, res) => {
         reason: d.reason,
         referenceId: d.referenceId || null,
         balanceAfter: d.balanceAfter,
+        expiresAt: d.expiresAt || null,
         createdAt: d.createdAt?.toDate?.().toISOString() || null,
       };
     });
@@ -202,7 +229,7 @@ router.get("/history", verifyToken, async (req, res) => {
 // Deducts points from the user's balance. Validates minimum redemption amount.
 // ─────────────────────────────────────────────────────────────────────────────
 router.post("/redeem", verifyToken, async (req, res) => {
-  const { pointsToRedeem, redemptionType, referenceId } = req.body;
+  const { pointsToRedeem, redemptionType, referenceId, tenantId, stationId } = req.body;
 
   if (!pointsToRedeem || !redemptionType) {
     return res.status(400).json({ error: "pointsToRedeem and redemptionType are required" });
@@ -253,6 +280,8 @@ router.post("/redeem", verifyToken, async (req, res) => {
         points: -pts,
         reason: redemptionType,
         referenceId: referenceId || null,
+        tenantId: tenantId || null,
+        stationId: stationId || null,
         balanceAfter: newBalance,
         createdAt: now,
       });
