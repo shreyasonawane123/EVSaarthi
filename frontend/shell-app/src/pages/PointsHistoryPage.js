@@ -78,6 +78,34 @@ export default function PointsHistoryPage() {
     fetchHistory(lastId);
   };
 
+  const [selectedTx, setSelectedTx] = useState(null);
+  const [txDetails, setTxDetails] = useState(null);
+  const [loadingDetails, setLoadingDetails] = useState(false);
+
+  const openTxDetails = async (tx) => {
+    setSelectedTx(tx);
+    setTxDetails(null);
+    setLoadingDetails(true);
+    try {
+      const token = await currentUser.getIdToken();
+      const res = await axios.get(`${API}/api/points/transaction/${tx.id}/details`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.data.success) {
+        setTxDetails(res.data.details);
+      }
+    } catch (err) {
+      console.error("Failed to load details", err);
+    } finally {
+      setLoadingDetails(false);
+    }
+  };
+
+  const closeTxDetails = () => {
+    setSelectedTx(null);
+    setTxDetails(null);
+  };
+
   return (
     <div style={pageWrap}>
       {/* Header */}
@@ -115,7 +143,7 @@ export default function PointsHistoryPage() {
             const meta = REASON_META[item.reason] || { icon: "GP", label: item.reason, color: "#16a34a" };
             const isEarn = item.type === "earn";
             return (
-              <div key={item.id} style={rowStyle}>
+              <div key={item.id} style={rowStyle} onClick={() => openTxDetails(item)}>
                 <div style={{ ...iconCircle, background: isEarn ? "#dcfce7" : "#fee2e2" }}>
                   <span style={{ fontSize: 20 }}>{meta.icon}</span>
                 </div>
@@ -154,6 +182,132 @@ export default function PointsHistoryPage() {
           )}
         </div>
       )}
+
+      {/* Transaction Details Modal */}
+      {selectedTx && (
+        <div style={modalOverlay} onClick={closeTxDetails}>
+          <div style={modalContent} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #f3f4f6", paddingBottom: 16, marginBottom: 16 }}>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#1a1a1a" }}>Transaction Details</h2>
+              <button onClick={closeTxDetails} style={{ background: "none", border: "none", fontSize: 24, cursor: "pointer", color: "#9ca3af" }}>&times;</button>
+            </div>
+            
+            <div style={{ marginBottom: 16 }}>
+              <p style={{ margin: "0 0 4px", fontSize: 12, color: "#6b7280", fontWeight: 600, textTransform: "uppercase" }}>Type</p>
+              <p style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#1a1a1a" }}>
+                {(REASON_META[selectedTx.reason] || {}).label || selectedTx.reason}
+              </p>
+            </div>
+
+            {loadingDetails ? (
+              <div style={{ display: "flex", justifyContent: "center", padding: 20 }}><div style={spinner} /></div>
+            ) : txDetails ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                {/* ── Session Completed ── */}
+                {selectedTx.reason === "session_completed" && txDetails.booking && (
+                  <>
+                    <div>
+                      <p style={{ margin: "0 0 4px", fontSize: 12, color: "#6b7280", fontWeight: 600, textTransform: "uppercase" }}>Station</p>
+                      <p style={{ margin: 0, fontSize: 15, fontWeight: 600, color: "#1a1a1a" }}>{txDetails.station ? txDetails.station.name : "Unknown Station"}</p>
+                      <p style={{ margin: 0, fontSize: 13, color: "#6b7280" }}>{txDetails.station ? txDetails.station.address : ""}</p>
+                    </div>
+                    <div>
+                      <p style={{ margin: "0 0 4px", fontSize: 12, color: "#6b7280", fontWeight: 600, textTransform: "uppercase" }}>Charging Slot</p>
+                      <p style={{ margin: 0, fontSize: 14, color: "#1a1a1a" }}>
+                         {txDetails.booking.slotDate || txDetails.booking.date || "—"} | {txDetails.booking.slotTime || "—"}
+                      </p>
+                    </div>
+                    {txDetails.booking.duration && (
+                      <div>
+                        <p style={{ margin: "0 0 4px", fontSize: 12, color: "#6b7280", fontWeight: 600, textTransform: "uppercase" }}>Duration</p>
+                        <p style={{ margin: 0, fontSize: 14, color: "#1a1a1a" }}>{txDetails.booking.duration} minutes</p>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* ── Review Submitted ── */}
+                {selectedTx.reason === "review_submitted" && (
+                  <>
+                    {txDetails.station && (
+                      <div>
+                        <p style={{ margin: "0 0 4px", fontSize: 12, color: "#6b7280", fontWeight: 600, textTransform: "uppercase" }}>Station Reviewed</p>
+                        <p style={{ margin: 0, fontSize: 15, fontWeight: 600, color: "#1a1a1a" }}>{txDetails.station.name || "Unknown Station"}</p>
+                        <p style={{ margin: 0, fontSize: 13, color: "#6b7280" }}>{txDetails.station.address || ""}</p>
+                      </div>
+                    )}
+                    {txDetails.booking && (
+                      <div>
+                        <p style={{ margin: "0 0 4px", fontSize: 12, color: "#6b7280", fontWeight: 600, textTransform: "uppercase" }}>Booking Slot</p>
+                        <p style={{ margin: 0, fontSize: 14, color: "#1a1a1a" }}>
+                           {txDetails.booking.slotDate || txDetails.booking.date || "—"} | {txDetails.booking.slotTime || "—"}
+                        </p>
+                      </div>
+                    )}
+                    {txDetails.review && (
+                      <>
+                        <div>
+                          <p style={{ margin: "0 0 4px", fontSize: 12, color: "#6b7280", fontWeight: 600, textTransform: "uppercase" }}>Your Rating</p>
+                          <p style={{ margin: 0, fontSize: 18, color: "#EAB308" }}>
+                            {"★".repeat(txDetails.review.rating || 0)}{"☆".repeat(5 - (txDetails.review.rating || 0))}
+                          </p>
+                        </div>
+                        {txDetails.review.comment && (
+                          <div>
+                            <p style={{ margin: "0 0 4px", fontSize: 12, color: "#6b7280", fontWeight: 600, textTransform: "uppercase" }}>Your Comment</p>
+                            <p style={{ margin: 0, fontSize: 13, color: "#374151", fontStyle: "italic", background: "#f9fafb", padding: 12, borderRadius: 8, lineHeight: 1.5 }}>
+                              "{txDetails.review.comment}"
+                            </p>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </>
+                )}
+                
+                {/* ── Accessory Purchase ── */}
+                {selectedTx.reason === "accessory_purchase" && txDetails.order && (
+                  <>
+                    <div>
+                      <p style={{ margin: "0 0 4px", fontSize: 12, color: "#6b7280", fontWeight: 600, textTransform: "uppercase" }}>Item Purchased</p>
+                      <p style={{ margin: 0, fontSize: 15, fontWeight: 600, color: "#1a1a1a" }}>{txDetails.order.itemName || txDetails.order.accessoryName || "EV Accessory"}</p>
+                      {txDetails.order.description && (
+                        <p style={{ margin: "4px 0 0", fontSize: 12, color: "#6b7280" }}>{txDetails.order.description}</p>
+                      )}
+                    </div>
+                    <div>
+                      <p style={{ margin: "0 0 4px", fontSize: 12, color: "#6b7280", fontWeight: 600, textTransform: "uppercase" }}>Points Used</p>
+                      <p style={{ margin: 0, fontSize: 14, color: "#dc2626", fontWeight: 700 }}>-{txDetails.order.pointsCost || txDetails.order.amount || selectedTx.points} pts</p>
+                    </div>
+                    {txDetails.order.createdAt && (
+                      <div>
+                        <p style={{ margin: "0 0 4px", fontSize: 12, color: "#6b7280", fontWeight: 600, textTransform: "uppercase" }}>Purchased On</p>
+                        <p style={{ margin: 0, fontSize: 14, color: "#1a1a1a" }}>
+                          {formatDate(txDetails.order.createdAt?.toDate ? txDetails.order.createdAt.toDate().toISOString() : txDetails.order.createdAt)}
+                        </p>
+                      </div>
+                    )}
+                  </>
+                )}
+                
+                <div>
+                  <p style={{ margin: "0 0 4px", fontSize: 12, color: "#6b7280", fontWeight: 600, textTransform: "uppercase" }}>Date & Time</p>
+                  <p style={{ margin: 0, fontSize: 14, color: "#1a1a1a" }}>{formatDate(selectedTx.createdAt)}</p>
+                </div>
+
+                <div style={{ background: "#f9fafb", padding: 16, borderRadius: 12, marginTop: 8 }}>
+                  <p style={{ margin: "0 0 4px", fontSize: 12, color: "#6b7280", fontWeight: 600, textTransform: "uppercase" }}>Points</p>
+                  <p style={{ margin: 0, fontSize: 20, fontWeight: 800, color: selectedTx.type === "earn" ? "#16a34a" : "#dc2626" }}>
+                    {selectedTx.type === "earn" ? "+" : ""}{selectedTx.points}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <p style={{ color: "#6b7280", fontSize: 14 }}>Details unavailable.</p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -167,6 +321,8 @@ const centered = { display: "flex", justifyContent: "center", padding: 60 };
 const spinner = { width: 36, height: 36, border: "3px solid #dcfce7", borderTop: "3px solid #16a34a", borderRadius: "50%", animation: "spin 0.8s linear infinite" };
 const emptyBox = { textAlign: "center", padding: "60px 20px", background: "#fff", borderRadius: 20, border: "1px solid #f3f4f6" };
 const listWrap = { display: "flex", flexDirection: "column", gap: 2 };
-const rowStyle = { display: "flex", alignItems: "center", gap: 14, padding: "16px 20px", background: "#fff", borderRadius: 16, border: "1px solid #f3f4f6", transition: "box-shadow 0.15s" };
+const rowStyle = { display: "flex", alignItems: "center", gap: 14, padding: "16px 20px", background: "#fff", borderRadius: 16, border: "1px solid #f3f4f6", transition: "all 0.2s", cursor: "pointer" };
 const iconCircle = { width: 48, height: 48, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 };
 const loadMoreBtn = { background: "linear-gradient(135deg, #15803d, #22c55e)", color: "#fff", border: "none", borderRadius: 20, padding: "10px 32px", fontSize: 14, fontWeight: 700, cursor: "pointer" };
+const modalOverlay = { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, backdropFilter: "blur(4px)" };
+const modalContent = { background: "#fff", borderRadius: 24, padding: 24, width: "100%", maxWidth: 400, boxShadow: "0 20px 40px rgba(0,0,0,0.2)", animation: "fadeUp 0.3s ease-out" };

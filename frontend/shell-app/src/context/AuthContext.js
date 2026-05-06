@@ -14,13 +14,6 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
-      // Update browser tab title based on login state
-      if (user) {
-        const name = user.displayName?.split(' ')[0] || 'User';
-        document.title = `${name}'s Dashboard — EV Saarthi`;
-      } else {
-        document.title = 'EV Saarthi — Smart EV Companion';
-      }
       setLoading(false);
     });
     return () => unsubscribe();

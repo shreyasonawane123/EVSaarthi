@@ -26,6 +26,7 @@ const bookingRoutes = require("./routes/booking");
 // Mount both ways for Gateway compatibility
 app.use("/", bookingRoutes);
 app.use("/api/booking", bookingRoutes);
+app.use("/api/bookings", bookingRoutes);
 
 // 404 handler
 

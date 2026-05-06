@@ -20,6 +20,7 @@ import AdminFrame from "./components/AdminFrame";
 import PointsHistoryPage from "./pages/PointsHistoryPage";
 import RewardsTab from "./pages/RewardsTab";
 import OperatorPointsRequestPage from "./pages/OperatorPointsRequestPage";
+import PaymentsPage from "./pages/PaymentsPage";
 
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
@@ -46,6 +47,7 @@ function App() {
               <Route path="/points-history" element={<ProtectedRoute><PointsHistoryPage /></ProtectedRoute>} />
               <Route path="/rewards" element={<ProtectedRoute><RewardsTab /></ProtectedRoute>} />
               <Route path="/operator/points-program" element={<ProtectedRoute><OperatorPointsRequestPage /></ProtectedRoute>} />
+              <Route path="/payments" element={<ProtectedRoute><PaymentsPage /></ProtectedRoute>} />
 
               {/* Admin Panel (Standalone App) */}
               <Route path="/admin/*" element={<AdminFrame />} />

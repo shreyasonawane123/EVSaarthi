@@ -14,7 +14,6 @@ const razorpay = new Razorpay({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ─────────────────────────────────────────────────────────────────────────────
 // POST /payment/order
 // ─────────────────────────────────────────────────────────────────────────────
 router.post("/payment/order", verifyToken, async (req, res) => {
@@ -115,8 +114,6 @@ router.post("/payment/verify", verifyToken, async (req, res) => {
       const slotRef = stationRef.collection("slots").doc(slotId);
       const slotDoc = await transaction.get(slotRef);
       if (slotDoc.exists) {
-        // Decrement capacity logic or just mark booked. We'll mark as booked since each slot doc is treated as 1 slot.
-        // Wait, if totalSlots > 1, we should allow multiple bookings per slot.
         const sData = slotDoc.data();
         const bookedCount = (sData.bookedCount || 0) + 1;
         const status = bookedCount >= (station.totalSlots || 1) ? "booked" : "available";
@@ -132,7 +129,6 @@ router.post("/payment/verify", verifyToken, async (req, res) => {
     const { bookingId, station } = result;
 
     // Calculate points: (duration_min / 60) * points_per_hour
-    // Handle cases where approvedPointsPerHour might be a string (e.g. "25 pts/hr")
     const rawRate = station.approvedPointsPerHour;
     const hourlyRate = (typeof rawRate === 'string')
       ? (parseInt(rawRate.replace(/[^0-9]/g, '')) || 50)
@@ -150,7 +146,6 @@ router.post("/payment/verify", verifyToken, async (req, res) => {
         const walletDoc = await walletRef.get();
 
         if (walletDoc.exists && (walletDoc.data().availablePoints || 0) >= sessionPoints) {
-          // Deduct from tenant wallet
           await walletRef.update({
             availablePoints: admin.firestore.FieldValue.increment(-sessionPoints),
             totalDistributed: admin.firestore.FieldValue.increment(sessionPoints),
@@ -163,17 +158,13 @@ router.post("/payment/verify", verifyToken, async (req, res) => {
         }
       } catch (walletErr) {
         console.error("[booking-service] Wallet check failed:", walletErr.message);
-        // If wallet check fails, don't award points (safe default)
       }
     } else if (!tenantId) {
-      // Stations without tenantId (platform-level) — no wallet needed for superadmin
-      // Don't award points for non-tenant stations unless wallet exists
       console.log("[booking-service] Station has no tenantId, skipping points award.");
     }
 
     // Fire-and-forget: award session completion points (only if wallet had funds)
     if (shouldAwardPoints) {
-      // Update booking with actual points earned
       db.collection("bookings").doc(bookingId).update({
         pointsEarned: sessionPoints,
       }).catch((err) => console.error("[booking-service] Update pointsEarned failed:", err.message));
@@ -194,30 +185,15 @@ router.post("/payment/verify", verifyToken, async (req, res) => {
       ).catch((err) => console.error("[booking-service] Session points failed:", err.message));
     }
 
-    // Deduct redeemed points if used
-    const { pointsToRedeem } = req.body;
-    if (pointsToRedeem && Number(pointsToRedeem) > 0) {
-      axios.post(
-        `${process.env.POINTS_SERVICE_URL}/api/points/redeem`,
-        {
-          pointsToRedeem: Number(pointsToRedeem),
-          redemptionType: "charging_discount",
-          referenceId: bookingId,
-          tenantId: tenantId || null,
-          stationId: stationId,
-        },
-        { headers: { Authorization: req.headers.authorization } }
-      ).catch((err) => console.error("[booking] Points deduction failed:", err.message));
-    }
-
-    res.status(201).json({ success: true, booking: { bookingId } });
-  } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.json({ success: true, bookingId, pointsEarned: shouldAwardPoints ? sessionPoints : 0 });
+  } catch (err) {
+    console.error("[payment/verify] Error:", err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Existing Routes
+// GET /my-bookings — All bookings for current user
 // ─────────────────────────────────────────────────────────────────────────────
 router.get("/my-bookings", verifyToken, async (req, res) => {
   try {
@@ -232,7 +208,71 @@ router.get("/my-bookings", verifyToken, async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /my — Alias for /my-bookings (used by DashboardPage)
+// ─────────────────────────────────────────────────────────────────────────────
+router.get("/my", verifyToken, async (req, res) => {
+  try {
+    const snapshot = await db.collection("bookings").where("userId", "==", req.uid).get();
+    const bookings = snapshot.docs.map(doc => ({ bookingId: doc.id, ...doc.data() }));
+    bookings.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+    res.json({ success: true, bookings });
+  } catch (e) {
+    console.error("[my] Error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /my-payments — Payment history for current user (like PhonePe/Paytm)
+// ─────────────────────────────────────────────────────────────────────────────
+router.get("/my-payments", verifyToken, async (req, res) => {
+  try {
+    const snapshot = await db.collection("bookings").where("userId", "==", req.uid).get();
+    const payments = [];
+
+    for (const doc of snapshot.docs) {
+      const d = doc.data();
+      let stationName = d.stationName || "";
+      // Fetch station name if missing
+      if (!stationName && d.stationId) {
+        try {
+          const stDoc = await db.collection("stations").doc(d.stationId).get();
+          if (stDoc.exists) stationName = stDoc.data().name || "";
+        } catch (_) { }
+      }
+
+      payments.push({
+        paymentId: d.razorpay_payment_id || null,
+        orderId: d.razorpay_order_id || null,
+        bookingId: doc.id,
+        stationName,
+        stationId: d.stationId || null,
+        amount: d.totalCost || 0,
+        currency: "INR",
+        status: d.status || "confirmed",
+        duration: d.duration || 0,
+        slotDate: d.slotDate || null,
+        slotTime: d.slotTime || null,
+        pointsEarned: d.pointsEarned || 0,
+        createdAt: d.createdAt?.toDate?.().toISOString() || null,
+        createdAtUTC: d.createdAt?.toDate?.().toUTCString() || null,
+      });
+    }
+
+    // Sort by date descending
+    payments.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+
+    res.json({ success: true, payments });
+  } catch (e) {
+    console.error("[my-payments] Error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /:bookingId — Single booking by ID (MUST be last — catch-all param route)
+// ─────────────────────────────────────────────────────────────────────────────
 router.get("/:bookingId", verifyToken, async (req, res) => {
   try {
     const doc = await db.collection("bookings").doc(req.params.bookingId).get();

@@ -53,7 +53,6 @@ const TenantModal = ({ onClose, onSuccess, currentUser, editingTenant }) => {
   const [contactEmail, setContactEmail] = useState(editingTenant?.contactEmail || "");
   const [contactPerson, setContactPerson] = useState(editingTenant?.contactPerson || "");
   const [contactPhone, setContactPhone] = useState(editingTenant?.contactPhone || "");
-  const [password, setPassword] = useState(editingTenant?.password || "");
   const [greenPointsEnabled, setGreenPointsEnabled] = useState(editingTenant?.greenPointsEnabled !== false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -67,7 +66,7 @@ const TenantModal = ({ onClose, onSuccess, currentUser, editingTenant }) => {
       const token = await currentUser.getIdToken();
       let res;
 
-      const payload = { name, contactEmail, contactPerson, contactPhone, password, greenPointsEnabled };
+      const payload = { name, contactEmail, contactPerson, contactPhone, greenPointsEnabled };
 
       if (editingTenant) {
         res = await axios.put(`${API}/api/admin/tenants/${editingTenant.id}`, payload, {
@@ -123,6 +122,7 @@ const TenantModal = ({ onClose, onSuccess, currentUser, editingTenant }) => {
             value={contactEmail}
             onChange={e => setContactEmail(e.target.value)}
             fullWidth size="small"
+            helperText="This email will be assigned the Admin role. They can log in via Google Sign-In."
           />
           <TextField
             label="Contact Person Name"
@@ -139,15 +139,15 @@ const TenantModal = ({ onClose, onSuccess, currentUser, editingTenant }) => {
             placeholder="e.g. +91 98765 43210"
             helperText="Contact phone number for this tenant."
           />
-          <TextField
-            label="Tenant Password"
-            type="password"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            fullWidth size="small"
-            placeholder="Enter password for tenant"
-            helperText="Used if tenant needs to log in directly."
-          />
+          {/* Role Display (read-only) */}
+          <div style={{
+            background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 8,
+            padding: "10px 14px", display: "flex", alignItems: "center", gap: 8,
+          }}>
+            <span style={{ fontSize: 13, color: "#15803D", fontWeight: 600 }}>
+              👤 Role: <strong>Admin</strong> — Will be auto-assigned on first Google login
+            </span>
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0' }}>
             <div>
               <div style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A' }}>Green Points</div>

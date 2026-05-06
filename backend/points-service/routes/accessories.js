@@ -152,7 +152,7 @@ router.post("/accessories/purchase", verifyToken, async (req, res) => {
         type: "redeem",
         points: -acc.pointsRequired,
         reason: "accessory_purchase",
-        referenceId: accessoryId,
+        referenceId: orderRef.id,
         balanceAfter: newBalance,
         createdAt: now,
       });

@@ -225,6 +225,103 @@ router.get("/history", verifyToken, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// GET /api/points/transaction/:id/details
+// Fetches detailed information for a specific point transaction, resolving
+// station, booking, and review metadata.
+// ─────────────────────────────────────────────────────────────────────────────
+router.get("/transaction/:id/details", verifyToken, async (req, res) => {
+  try {
+    const txId = req.params.id;
+    const txDoc = await db.collection("pointsLedger").doc(txId).get();
+
+    if (!txDoc.exists) {
+      return res.status(404).json({ error: "Transaction not found" });
+    }
+
+    const data = txDoc.data();
+    if (data.userId !== req.uid) {
+      return res.status(403).json({ error: "Unauthorized access to transaction" });
+    }
+
+    let details = { ...data };
+
+    // Resolve additional details based on the reason and referenceId
+    if (data.referenceId) {
+      if (data.reason === "session_completed" || data.reason === "charging_discount") {
+        const bookingDoc = await db.collection("bookings").doc(data.referenceId).get();
+        if (bookingDoc.exists) {
+          details.booking = bookingDoc.data();
+          if (details.booking.stationId) {
+            const stationDoc = await db.collection("stations").doc(details.booking.stationId).get();
+            if (stationDoc.exists) {
+              details.station = stationDoc.data();
+            }
+          }
+        }
+      } else if (data.reason === "review_submitted") {
+        // For review_submitted, referenceId is the stationId
+        const stationDoc = await db.collection("stations").doc(data.referenceId).get();
+        if (stationDoc.exists) {
+          details.station = stationDoc.data();
+          // Find the review by this user for this station without orderBy to avoid composite index requirement
+          const reviewQuery = await db.collection("stations").doc(data.referenceId)
+            .collection("reviews")
+            .where("userId", "==", req.uid)
+            .get();
+          
+          if (!reviewQuery.empty) {
+            // Sort in memory by timestamp desc to get the latest
+            const reviewsList = reviewQuery.docs.map(d => d.data());
+            reviewsList.sort((a, b) => {
+              const tA = a.timestamp?.toMillis ? a.timestamp.toMillis() : 0;
+              const tB = b.timestamp?.toMillis ? b.timestamp.toMillis() : 0;
+              return tB - tA;
+            });
+            details.review = reviewsList[0];
+            if (details.review.bookingId) {
+              const bookingDoc = await db.collection("bookings").doc(details.review.bookingId).get();
+              if (bookingDoc.exists) {
+                details.booking = bookingDoc.data();
+              }
+            }
+          }
+        }
+      } else if (data.reason === "accessory_purchase") {
+        // Assume referenceId is an order ID for an accessory
+        let orderDoc = await db.collection("accessoryOrders").doc(data.referenceId).get();
+        if (orderDoc.exists) {
+          details.order = orderDoc.data();
+        } else {
+          // If referenceId was mistakenly set to accessoryId, try querying by userId and filtering in memory
+          const orderQuery = await db.collection("accessoryOrders")
+            .where("userId", "==", req.uid)
+            .get();
+          
+          const matchedOrder = orderQuery.docs.find(doc => doc.data().accessoryId === data.referenceId);
+          if (matchedOrder) {
+            details.order = matchedOrder.data();
+          } else {
+            // Fallback to fetch the accessory directly
+            const accDoc = await db.collection("accessories").doc(data.referenceId).get();
+            if (accDoc.exists) {
+              details.order = {
+                itemName: accDoc.data().name,
+                description: accDoc.data().description,
+              };
+            }
+          }
+        }
+      }
+    }
+
+    return res.json({ success: true, details });
+  } catch (error) {
+    console.error("[points-service] Transaction details error:", error.message);
+    res.status(500).json({ error: "Failed to fetch transaction details" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // POST /api/points/redeem
 // Deducts points from the user's balance. Validates minimum redemption amount.
 // ─────────────────────────────────────────────────────────────────────────────

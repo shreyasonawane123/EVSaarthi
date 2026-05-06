@@ -371,14 +371,53 @@ const LoginPage = () => {
                 />
               </div>
 
+              {/* Email Form */}
+              <form onSubmit={handleEmailLogin} className="flex flex-col gap-3">
+                <input
+                  type="email"
+                  placeholder="Email Address"
+                  value={email}
+                  onChange={(e) => { setEmail(e.target.value); setError(""); }}
+                  disabled={loading}
+                  className="w-full px-4 py-3.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#16A34A] focus:border-transparent transition-all"
+                  required
+                />
+                <input
+                  type="password"
+                  placeholder="Password"
+                  value={password}
+                  onChange={(e) => { setPassword(e.target.value); setError(""); }}
+                  disabled={loading}
+                  className="w-full px-4 py-3.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#16A34A] focus:border-transparent transition-all"
+                  required
+                />
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full py-4 bg-[#16A34A] hover:bg-[#15803D] text-white font-extrabold rounded-xl transition-all shadow-lg shadow-green-100 disabled:opacity-70 disabled:cursor-not-allowed mt-1"
+                >
+                  {loading ? "Please wait..." : "Sign In with Email"}
+                </button>
+              </form>
+
+              {/* Divider */}
+              <div className="flex items-center gap-3 my-4">
+                <div className="flex-1 h-px bg-gray-100" />
+                <span className="text-[10px] text-[#9CA3AF] uppercase tracking-widest font-black">
+                  or
+                </span>
+                <div className="flex-1 h-px bg-gray-100" />
+              </div>
+
               {/* Google Button */}
               <button
                 onClick={handleGoogleLogin}
+                type="button"
                 disabled={loading}
-                className="w-full relative py-4 bg-[#16A34A] hover:bg-[#15803D] text-white font-extrabold rounded-xl transition-all shadow-lg shadow-green-100 flex items-center justify-center gap-3 disabled:opacity-70 disabled:cursor-not-allowed"
+                className="w-full relative py-3.5 bg-white hover:bg-gray-50 text-gray-700 font-extrabold rounded-xl transition-all border border-gray-200 flex items-center justify-center gap-3 disabled:opacity-70 disabled:cursor-not-allowed"
               >
                 <GoogleIcon />
-                {loading ? "Please wait..." : "Continue with Google"}
+                Continue with Google
               </button>
 
               {/* Divider */}

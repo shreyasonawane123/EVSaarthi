@@ -53,31 +53,23 @@ router.get("/", verifyToken, async (req, res) => {
 });
 
 // POST /operators
-// Create a new operator. Expected to be called by an Admin or system.
+// Create a new operator — passwordless, role-based (Google sign-in)
 router.post("/", verifyToken, async (req, res) => {
-  const { name, email, password, stationId, tenantId } = req.body;
+  const { name, email, stationId, tenantId } = req.body;
 
-  if (!email || !password) {
-    return res.status(400).json({ error: "email and password are required" });
+  if (!email) {
+    return res.status(400).json({ error: "email is required" });
   }
 
   try {
-    // 1. Create the Firebase Auth user automatically
-    const authUser = await admin.auth().createUser({
-      email: email.trim().toLowerCase(),
-      password: password,
-      displayName: name || "",
-    });
+    const emailLower = email.trim().toLowerCase();
 
     // Fetch the admin making this request to inherit their tenantId
     let finalTenantId = tenantId || null;
-    let creatorRole = "admin";
     try {
       const adminDoc = await db.collection("adminUsers").doc(req.uid).get();
       if (adminDoc.exists) {
         const adData = adminDoc.data();
-        creatorRole = adData.role;
-        // If not superadmin, enforce the admin's own tenantId
         if (adData.role !== "superadmin") {
           finalTenantId = adData.tenantId || null;
         }
@@ -88,7 +80,7 @@ router.post("/", verifyToken, async (req, res) => {
 
     const operatorData = {
       name: name || "",
-      email: email.trim().toLowerCase(),
+      email: emailLower,
       stationId: stationId || null,
       tenantId: finalTenantId,
       role: "operator",
@@ -96,8 +88,41 @@ router.post("/", verifyToken, async (req, res) => {
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
 
-    // 2. Save into operators collection using the generated UID
-    await db.collection("operators").doc(authUser.uid).set(operatorData);
+    // Check if user already exists in Firebase Auth (e.g., signed in via Google before)
+    let uid = null;
+    try {
+      const userRecord = await admin.auth().getUserByEmail(emailLower);
+      uid = userRecord.uid;
+      operatorData.name = userRecord.displayName || name || "";
+    } catch (authErr) {
+      if (authErr.code !== "auth/user-not-found") throw authErr;
+    }
+
+    if (uid) {
+      // User exists in Auth — create operator record directly
+      await db.collection("operators").doc(uid).set(operatorData);
+      // Also add to adminUsers with operator role for /me endpoint detection
+      await db.collection("adminUsers").doc(uid).set({
+        uid,
+        email: emailLower,
+        name: operatorData.name,
+        role: "operator",
+        tenantId: finalTenantId,
+        addedBy: req.uid,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    } else {
+      // User doesn't exist yet — store as pending so they're auto-activated on first Google sign-in
+      await db.collection("pendingAdmins").doc(emailLower).set({
+        email: emailLower,
+        name: name || "Operator",
+        role: "operator",
+        tenantId: finalTenantId,
+        stationId: stationId || null,
+        addedBy: req.uid,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
     
     res.json({ success: true, message: "Operator created successfully", operator: operatorData });
   } catch (error) {
