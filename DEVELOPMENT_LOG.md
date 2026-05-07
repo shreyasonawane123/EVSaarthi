@@ -17,8 +17,8 @@ EV Saarthi is built as a **Micro-Frontend + Microservice** architecture:
 | **Maps** | Mappls API | Indian maps & geocoding |
 | **Storage** | Firebase Storage | Review photo uploads |
 | **CI/CD** | GitHub + GitLab CI | Automated testing pipeline |
-| **Hosting (Backend)** | Render.com | Unified Node.js service |
-| **Hosting (Frontend)** | Vercel | Unified static deployment |
+| **Hosting (Backend)** | Firebase | Unified service (Cloud Run/Functions) |
+| **Hosting (Frontend)** | Firebase | Firebase Hosting (Unified) |
 
 ---
 
@@ -142,18 +142,18 @@ EV Saarthi is built as a **Micro-Frontend + Microservice** architecture:
 - Admin can assign and remove operators from the **OperatorsPage** in the admin panel.
 
 **Unified Production Backend:**
-- Consolidated all 7 microservices into a single Express app in `backend/production/` for easier and cheaper hosting on Render.
-- Centralized Firebase config that supports both local file key and production Base64 environment variable.
+- Consolidated all 7 microservices into a single Express app in `backend/production/` for easier and cheaper hosting.
+- Centralized Firebase config that supports both local file key and production environment variables.
 - All routes prefixed under `/api/` for clean, unified access.
 
 **Frontend Deployment:**
-- All 7 React apps built and hosted under one Vercel project using subfolder routing (`/admin`, `/booking`, `/auth`, etc.).
+- All 7 React apps built and hosted under one Firebase project using subfolder routing (`/admin`, `/booking`, `/auth`, etc.).
 - `scripts/build-all.js` — Master build script that builds all 7 apps in sequence.
-- `vercel.json` — Smart traffic router that serves the correct app for each URL path, without interfering with static assets.
+- `firebase.json` — Smart traffic router that serves the correct app for each URL path, without interfering with static assets.
 
 **Live URLs:**
-- 🟢 **Backend API:** `https://ev-saarthi-backend.onrender.com`
-- 🟢 **Frontend:** `https://ev-saarthi-frontend.vercel.app`
+- 🟢 **Backend API:** `https://ru-green-ev-bf229.web.app/api`
+- 🟢 **Frontend:** `https://ru-green-ev-bf229.web.app`
 
 **Key Files:**
 - `backend/production/index.js` — Unified master backend
@@ -161,7 +161,48 @@ EV Saarthi is built as a **Micro-Frontend + Microservice** architecture:
 - `backend/station-service/routes/operators.js` — Operator management routes
 - `frontend/admin-app/src/pages/OperatorsPage.js` — Admin operator management UI
 - `scripts/build-all.js` — Automates building all 7 frontend apps
-- `vercel.json` — Vercel routing configuration
+- `firebase.json` — Firebase routing configuration
+
+---
+
+## ✅ PHASE 5 — Enhanced Governance & Gamification
+**April 19 – May 7, 2026 (3 Weeks)**
+
+### Week 8 — Apr 19–25: Tenant Management System
+**What we built:**
+- **Tenant Entity**: Introduced a "Tenant" level to the architecture, allowing charging stations to be grouped by owner/company.
+- **Tenants Page**: A dedicated superadmin dashboard for creating and managing tenants.
+- **Contact Details**: Added fields for `contactPhone`, `contactPerson`, and `contactEmail` for every tenant.
+- **Green Points Toggle**: A global switch per tenant to enable/disable point earning at their stations (governance control).
+- **Decoupled Auth**: Removed mandatory password requirement on tenant creation to improve security.
+
+**Key Files:**
+- `frontend/admin-app/src/pages/TenantsPage.js` — Organization management UI
+- `backend/admin-service/routes/tenants.js` — Tenant CRUD logic
+- `DATABASE_CHANGES_README.md` — Detailed schema documentation
+
+---
+
+### Week 9 — Apr 26–May 3: Referral Program & Tiers
+**What we built:**
+- **Referral Code System**: Auto-generation of unique referral codes for every user (e.g., `REF123`).
+- **Lazy Backfilling**: Existing users automatically get a code assigned the next time they view their balance.
+- **Referral Bonus**: 200 points awarded to the referrer when a new user validates their code.
+- **User Tiers**: Multi-level rewards system (Bronze, Silver, Gold, Platinum, Diamond) based on **Lifetime Points**.
+- **Points Ledger Expiry**: Implemented `expiresAt` logic in the ledger for points expiration tracking.
+
+**Key Files:**
+- `backend/points-service/utils/referralGenerator.js` — Unique code engine
+- `backend/points-service/utils/tierCalculator.js` — Rank logic based on total activity
+- `backend/points-service/routes/referral.js` — Validation and bonus logic
+
+---
+
+### Week 10 — May 4–7: Load More Pagination & Optimization
+**What we built:**
+- **In-Memory Sorting**: Updated points history to use in-memory sorting, avoiding the need for expensive Firebase composite indexes.
+- **Load More Button**: Replaced traditional pagination with "Load More" for a smoother mobile experience in History and Tenants pages.
+- **Performance Fixes**: Reduced redundant Firestore reads in the `points-service` by optimizing transaction order.
 
 ---
 
@@ -177,6 +218,9 @@ EV Saarthi is built as a **Micro-Frontend + Microservice** architecture:
 | **Manual Review Moderation** | Admin Panel | Approve/Reject individual reviews from a centralized queue |
 | **Auto-Approve Toggle** | Admin Panel | Per-station setting to auto-approve or manually moderate reviews |
 | **Operator Role System** | Backend + Admin | Role below Admin to manage specific stations |
+| **Tenant Role System** | Backend + Admin | High-level organization management for superadmins |
+| **Referral Program** | Points Service | Users earn points by inviting others via unique codes |
+| **Tiered Rewards** | Points Service | Users ranked from Bronze to Diamond based on lifetime activity |
 | **GPS-Verified Reviews** | Backend | Only confirmed booking users can write a review |
 | **Live Rating Recalculation** | Backend | Station rating auto-updates on each review action |
 | **Rating Sync Script** | Scripts | One-time fix to repair bad historical rating values |
@@ -185,17 +229,11 @@ EV Saarthi is built as a **Micro-Frontend + Microservice** architecture:
 
 ---
 
-## 🔜 PHASE 3 — AI & Advanced Features
-**April 18 – May 4, 2026**
-- AI Trip Planner (Mappls + OpenWeatherMap + Range Engine with AC/temperature/terrain factors).
+## 🔜 PHASE 6 — AI & Launch
+**May 2026**
+- AI Trip Planner (Mappls + OpenWeatherMap).
 - Multi-stop charging plan builder.
-- AI Chatbot (Hindi + English, Indian EV subsidy and range context).
-
-## 🔜 PHASE 4 — Battery Exchange + Launch
-**May 4 – May 18, 2026**
-- Battery Exchange Bazaar MVP (List / Browse / Contact seller).
-- Admin moderation queue for listings.
-- Final public launch.
+- Battery Exchange Bazaar launch.
 
 ---
 
@@ -205,31 +243,26 @@ EV Saarthi is built as a **Micro-Frontend + Microservice** architecture:
 EVSaarthi/
 ├── backend/
 │   ├── production/              ← Unified deployment backend
-│   │   ├── index.js             ← Master entry point (all services merged)
-│   │   ├── config/firebase.js   ← Environment-smart Firebase init
-│   │   ├── routes/              ← auth, user, stations, booking, vehicle, admin
-│   │   └── package.json         ← All dependencies in one file
-│   ├── auth-service/            ← Local dev microservice
+│   ├── auth-service/
 │   ├── user-service/
 │   ├── station-service/         ← Includes operator middleware + slot generator
 │   ├── booking-service/
-│   ├── vehicle-service/
-│   └── admin-service/
+│   ├── points-service/          ← Includes referral & tier logic
+│   ├── admin-service/           ← Includes tenant management
+│   └── vehicle-service/
 ├── frontend/
 │   ├── shell-app/               ← Root navigation app
-│   ├── auth-app/                ← Login / Register
-│   ├── dashboard-app/           ← Analytics + Green Points
+│   ├── auth-app/
+│   ├── dashboard-app/           ← Analytics + Tier display
 │   ├── booking-app/             ← Slot booking + Post-booking Reviews
 │   ├── map-app/                 ← Station Map with live markers
-│   ├── profile-app/             ← User profile + Vehicle management
-│   └── admin-app/               ← Full admin panel (stations, users, reviews, operators)
+│   ├── profile-app/
+│   └── admin-app/               ← Full admin panel (stations, users, reviews, tenants)
 ├── scripts/
-│   └── build-all.js             ← Builds all 7 frontend apps for Vercel
-├── vercel.json                  ← Vercel routing config
+│   └── build-all.js             ← Builds all 7 frontend apps
+├── firebase.json                ← Firebase routing config
 ├── sync_ratings_script.js       ← One-time rating migration tool
 ├── DEVELOPMENT_LOG.md           ← This document
-├── .gitlab-ci.yml               ← CI/CD pipeline
-└── .gitignore
 ```
 
 ---
@@ -238,11 +271,12 @@ EVSaarthi/
 
 | Variable | Where | Description |
 |---|---|---|
-| `FIREBASE_SERVICE_ACCOUNT_KEY` | Render | Base64-encoded Firebase service account JSON |
-| `RAZORPAY_KEY_ID` | Render | Razorpay payment gateway key |
-| `RAZORPAY_KEY_SECRET` | Render | Razorpay payment gateway secret |
-| `REACT_APP_API_URL` | Vercel | Render backend base URL |
+| `FIREBASE_SERVICE_ACCOUNT_KEY` | Firebase | Secret managed via Cloud Secrets |
+| `RAZORPAY_KEY_ID` | Firebase | Secret managed via Cloud Secrets |
+| `RAZORPAY_KEY_SECRET` | Firebase | Secret managed via Cloud Secrets |
+| `REACT_APP_API_URL` | Firebase | Self-referencing Hosting URL |
+| `INTERNAL_SECRET` | Firebase | Secret managed via Cloud Secrets |
 
 ---
 
-*Document last updated: April 8, 2026*
+*Document last updated: May 7, 2026*

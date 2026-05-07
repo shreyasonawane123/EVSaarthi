@@ -5,6 +5,7 @@ import { auth, googleProvider, db } from "../firebase/config";
 import { doc, getDoc } from "firebase/firestore";
 import { useAuth } from "../context/AuthContext";
 import axios from "axios";
+import ReCAPTCHA from "react-google-recaptcha";
 import {
   Bolt as BoltIcon,
   EvStation as EvStationIcon,
@@ -103,6 +104,12 @@ const LoginPage = () => {
     setLoading(true);
     setCheckingProfile(true); // START CHECKING
     setError("");
+    if (!recaptchaToken) {
+      setError("Please complete the CAPTCHA first.");
+      setLoading(false);
+      setCheckingProfile(false);
+      return;
+    }
     try {
       const result = await signInWithPopup(auth, googleProvider);
       const user = result.user;
@@ -180,6 +187,11 @@ const LoginPage = () => {
 
     setLoading(true);
     setError("");
+    if (!recaptchaToken) {
+      setError("Please complete the CAPTCHA first.");
+      setLoading(false);
+      return;
+    }
     try {
       const result = await signInWithEmailAndPassword(auth, email, password);
       await handleRedirect(result.user);
