@@ -52,7 +52,6 @@ const Toast = ({ toast, onClose }) => {
 
 const AddOperatorModal = ({ onClose, onSuccess, currentUser, editingOperator, availableStations }) => {
   const [email, setEmail]     = useState(editingOperator?.email || "");
-  const [password, setPassword] = useState("");
   const [name, setName]       = useState(editingOperator?.name || "");
   const [stationId, setStationId] = useState(editingOperator?.stationId || "");
   const [error, setError]     = useState("");
@@ -60,7 +59,7 @@ const AddOperatorModal = ({ onClose, onSuccess, currentUser, editingOperator, av
 
   const handleSave = async () => {
     setError("");
-    if (!email || (!editingOperator && !password)) { setError("Email and Password are required."); return; }
+    if (!email) { setError("Email is required."); return; }
     if (!stationId) { setError("Please assign a station to this operator."); return; }
 
     setLoading(true);
@@ -79,7 +78,6 @@ const AddOperatorModal = ({ onClose, onSuccess, currentUser, editingOperator, av
           headers: { Authorization: `Bearer ${token}` }
         });
       } else {
-        payload.password = password;
         res = await axios.post(`${API}/api/operators`, payload, {
           headers: { Authorization: `Bearer ${token}` }
         });
@@ -125,17 +123,8 @@ const AddOperatorModal = ({ onClose, onSuccess, currentUser, editingOperator, av
             onChange={e => setEmail(e.target.value)} 
             disabled={!!editingOperator}
             fullWidth size="small"
+            helperText="Operator will sign in via Google with this email."
           />
-          {!editingOperator && (
-            <TextField 
-              label="Temporary Password" 
-              type="password"
-              value={password} 
-              onChange={e => setPassword(e.target.value)} 
-              helperText="The operator will use this to sign in."
-              fullWidth size="small"
-            />
-          )}
           <TextField 
             label="Name" 
             value={name} 
@@ -159,6 +148,16 @@ const AddOperatorModal = ({ onClose, onSuccess, currentUser, editingOperator, av
               ))}
             </Select>
           </FormControl>
+
+          {/* Role info badge */}
+          <div style={{
+            background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 8,
+            padding: "10px 14px", display: "flex", alignItems: "center", gap: 8,
+          }}>
+            <span style={{ fontSize: 12, color: "#15803D", fontWeight: 600 }}>
+              🔐 Role: <strong>Operator</strong> — No password needed. They sign in via Google.
+            </span>
+          </div>
         </div>
 
         {error && (

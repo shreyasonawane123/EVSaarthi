@@ -683,23 +683,10 @@ router.get("/tenants", verifyToken, verifyAdmin, async (req, res) => {
 
 // POST /tenants
 router.post("/tenants", verifyToken, verifyAdmin, requireSuperadmin, async (req, res) => {
-  const { name, contactEmail, contactPerson, contactPhone, password, greenPointsEnabled } = req.body;
+  const { name, contactEmail, contactPerson, contactPhone, greenPointsEnabled } = req.body;
   if (!name) return res.status(400).json({ error: "Tenant name is required" });
 
   try {
-    // 1. If password and email are provided, ensure the email isn't already used as an admin
-    if (contactEmail && password && password.trim().length >= 6) {
-      const emailLower = contactEmail.trim().toLowerCase();
-      try {
-        await admin.auth().getUserByEmail(emailLower);
-        return res.status(400).json({ error: "An account with this email already exists." });
-      } catch (authErr) {
-        if (authErr.code !== "auth/user-not-found") {
-          throw authErr;
-        }
-      }
-    }
-
     const tenantData = {
       name,
       contactEmail: contactEmail || "",
@@ -713,33 +700,41 @@ router.post("/tenants", verifyToken, verifyAdmin, requireSuperadmin, async (req,
     const docRef = await db.collection("tenants").add(tenantData);
     const tenantId = docRef.id;
 
-    // 2. Create the Firebase Auth user & adminUser doc if password was provided
-    if (contactEmail && password && password.trim().length >= 6) {
+    // If email is provided, register them as an admin for this tenant (role-based, passwordless)
+    if (contactEmail && contactEmail.trim()) {
       const emailLower = contactEmail.trim().toLowerCase();
-      const newUser = await admin.auth().createUser({
-        email: emailLower,
-        password: password,
-        displayName: contactPerson || name || "Tenant Admin"
-      });
-      const uid = newUser.uid;
+      // Check if a Firebase Auth user already exists with this email
+      let uid = null;
+      try {
+        const userRecord = await admin.auth().getUserByEmail(emailLower);
+        uid = userRecord.uid;
+      } catch (authErr) {
+        // User doesn't exist in Auth yet — they'll be created when they first sign in with Google
+        if (authErr.code !== "auth/user-not-found") throw authErr;
+      }
 
-      // Add to public users/
-      await db.collection("users").doc(uid).set({
-        name: contactPerson || name || "Tenant Admin",
-        email: emailLower,
-        createdAt: admin.firestore.FieldValue.serverTimestamp()
-      });
-
-      // Add to adminUsers/
-      await db.collection("adminUsers").doc(uid).set({
-        uid,
-        email: emailLower,
-        name: contactPerson || name || "Tenant Admin",
-        role: "admin",
-        tenantId: tenantId,
-        addedBy: req.uid,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
+      if (uid) {
+        // User already exists in Auth (e.g., signed up via Google before)
+        await db.collection("adminUsers").doc(uid).set({
+          uid,
+          email: emailLower,
+          name: contactPerson || name || "Tenant Admin",
+          role: "admin",
+          tenantId: tenantId,
+          addedBy: req.uid,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      } else {
+        // Store a pending admin record keyed by email so when they first Google sign-in, we auto-assign
+        await db.collection("pendingAdmins").doc(emailLower).set({
+          email: emailLower,
+          name: contactPerson || name || "Tenant Admin",
+          role: "admin",
+          tenantId: tenantId,
+          addedBy: req.uid,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
     }
 
     res.json({ success: true, tenant: { id: tenantId, ...tenantData } });
@@ -751,7 +746,7 @@ router.post("/tenants", verifyToken, verifyAdmin, requireSuperadmin, async (req,
 
 // PUT /tenants/:id
 router.put("/tenants/:id", verifyToken, verifyAdmin, requireSuperadmin, async (req, res) => {
-  const { name, contactEmail, contactPerson, contactPhone, password, greenPointsEnabled } = req.body;
+  const { name, contactEmail, contactPerson, contactPhone, greenPointsEnabled } = req.body;
   const tenantId = req.params.id;
   try {
     const updateData = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
@@ -763,48 +758,40 @@ router.put("/tenants/:id", verifyToken, verifyAdmin, requireSuperadmin, async (r
 
     await db.collection("tenants").doc(tenantId).update(updateData);
 
-    // If password is provided, try to update existing or create new admin user
-    if (contactEmail && password && password.trim().length >= 6) {
+    // If email provided, ensure admin record exists for role-based login
+    if (contactEmail && contactEmail.trim()) {
       const emailLower = contactEmail.trim().toLowerCase();
-      let uid;
-
+      let uid = null;
       try {
         const userRecord = await admin.auth().getUserByEmail(emailLower);
         uid = userRecord.uid;
-        // Update password if user exists
-        await admin.auth().updateUser(uid, { password });
       } catch (authErr) {
-        if (authErr.code === "auth/user-not-found") {
-          // Create new user if not found
-          const newUser = await admin.auth().createUser({
-            email: emailLower,
-            password: password,
-            displayName: contactPerson || name || "Tenant Admin"
-          });
-          uid = newUser.uid;
-
-          await db.collection("users").doc(uid).set({
-            name: contactPerson || name || "Tenant Admin",
-            email: emailLower,
-            createdAt: admin.firestore.FieldValue.serverTimestamp()
-          });
-        } else {
-          throw authErr;
-        }
+        if (authErr.code !== "auth/user-not-found") throw authErr;
       }
 
-      // Ensure they exist in adminUsers for this tenant
-      const existingAdmin = await db.collection("adminUsers").doc(uid).get();
-      if (!existingAdmin.exists) {
-        await db.collection("adminUsers").doc(uid).set({
-          uid,
+      if (uid) {
+        const existingAdmin = await db.collection("adminUsers").doc(uid).get();
+        if (!existingAdmin.exists) {
+          await db.collection("adminUsers").doc(uid).set({
+            uid,
+            email: emailLower,
+            name: contactPerson || name || "Tenant Admin",
+            role: "admin",
+            tenantId: tenantId,
+            addedBy: req.uid,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        }
+      } else {
+        // Store/update pending admin record
+        await db.collection("pendingAdmins").doc(emailLower).set({
           email: emailLower,
           name: contactPerson || name || "Tenant Admin",
           role: "admin",
           tenantId: tenantId,
           addedBy: req.uid,
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
+        }, { merge: true });
       }
     }
 
@@ -856,6 +843,96 @@ router.delete("/tenants/:id", verifyToken, verifyAdmin, requireSuperadmin, async
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/admin/email-login
+// Passwordless email login — no magic link, no OTP, no password.
+// 1. Check if email exists in adminUsers (by email field) OR pendingAdmins
+// 2. If found → create or retrieve Firebase Auth user → issue Custom Token
+// 3. Frontend calls signInWithCustomToken(token) to sign in
+// ─────────────────────────────────────────────────────────────────────────────
+router.post("/email-login", async (req, res) => {
+  try {
+    const rawEmail = (req.body.email || "").trim().toLowerCase();
+    if (!rawEmail) return res.status(400).json({ error: "Email is required." });
+
+    // ── 1. Check adminUsers collection by email field ─────────────────────
+    const adminSnap = await db.collection("adminUsers")
+      .where("email", "==", rawEmail)
+      .limit(1)
+      .get();
+
+    let uid = null;
+    let profileData = null;
+
+    if (!adminSnap.empty) {
+      profileData = adminSnap.docs[0].data();
+      uid = profileData.uid || adminSnap.docs[0].id;
+    } else {
+      // ── 2. Check operators collection by email ──────────────────────────
+      const opSnap = await db.collection("operators")
+        .where("email", "==", rawEmail)
+        .limit(1)
+        .get();
+
+      if (!opSnap.empty) {
+        profileData = opSnap.docs[0].data();
+        uid = profileData.uid || opSnap.docs[0].id;
+      } else {
+        // ── 3. Check pendingAdmins (email is the doc ID) ──────────────────
+        const pendingDoc = await db.collection("pendingAdmins").doc(rawEmail).get();
+        if (!pendingDoc.exists) {
+          return res.status(404).json({
+            error: "This email is not registered as staff. Contact your administrator.",
+          });
+        }
+        // pendingAdmin exists — get or create the Firebase Auth user
+        profileData = pendingDoc.data();
+        try {
+          const userRecord = await admin.auth().getUserByEmail(rawEmail);
+          uid = userRecord.uid;
+        } catch (_) {
+          // User doesn't exist in Firebase Auth yet — create them
+          const newUser = await admin.auth().createUser({
+            email: rawEmail,
+            displayName: profileData.name || rawEmail.split("@")[0],
+            emailVerified: true,   // trust since we verified via pendingAdmins
+          });
+          uid = newUser.uid;
+        }
+        // Don't delete pendingAdmins yet — /me will do that after first sign-in
+      }
+    }
+
+    // ── 4. Ensure Firebase Auth user exists (for existing adminUsers records) ─
+    if (!uid) {
+      return res.status(500).json({ error: "Could not resolve user UID." });
+    }
+
+    // If uid looks like an email (legacy doc IDs), resolve by email
+    if (uid.includes("@")) {
+      try {
+        const rec = await admin.auth().getUserByEmail(rawEmail);
+        uid = rec.uid;
+      } catch (_) {
+        const newUser = await admin.auth().createUser({
+          email: rawEmail,
+          displayName: profileData?.name || rawEmail.split("@")[0],
+          emailVerified: true,
+        });
+        uid = newUser.uid;
+      }
+    }
+
+    // ── 5. Mint Firebase Custom Token ─────────────────────────────────────
+    const customToken = await admin.auth().createCustomToken(uid);
+
+    res.json({ success: true, customToken });
+  } catch (err) {
+    console.error("[admin/email-login] Error:", err.message);
+    res.status(500).json({ error: "Login failed. Please try again." });
+  }
+});
+
 // GET /api/admin/me
 // Returns current admin's profile data (role, tenantId)
 router.get("/me", verifyToken, async (req, res) => {
@@ -871,7 +948,54 @@ router.get("/me", verifyToken, async (req, res) => {
       if (operatorDoc.exists) {
         data = operatorDoc.data();
       } else {
-        return res.status(404).json({ success: false, error: "Profile not found" });
+        // Check pendingAdmins by email — auto-activate on first Google sign-in
+        const userRecord = await admin.auth().getUser(req.uid);
+        const userEmail = userRecord.email?.toLowerCase();
+        if (userEmail) {
+          const pendingDoc = await db.collection("pendingAdmins").doc(userEmail).get();
+          if (pendingDoc.exists) {
+            const pending = pendingDoc.data();
+            // Create the adminUsers record
+            const newAdminData = {
+              uid: req.uid,
+              email: userEmail,
+              name: userRecord.displayName || pending.name || "Admin",
+              role: pending.role || "admin",
+              tenantId: pending.tenantId || null,
+              addedBy: pending.addedBy || null,
+              createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            };
+            await db.collection("adminUsers").doc(req.uid).set(newAdminData);
+            // If operator role, also create operators/ record
+            if (pending.role === "operator") {
+              await db.collection("operators").doc(req.uid).set({
+                name: userRecord.displayName || pending.name || "Operator",
+                email: userEmail,
+                stationId: pending.stationId || null,
+                tenantId: pending.tenantId || null,
+                role: "operator",
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+              });
+            }
+            // Also add to users/ if not already there
+            const userDoc = await db.collection("users").doc(req.uid).get();
+            if (!userDoc.exists) {
+              await db.collection("users").doc(req.uid).set({
+                name: userRecord.displayName || pending.name || "Admin",
+                email: userEmail,
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+              });
+            }
+            // Delete the pending record
+            await db.collection("pendingAdmins").doc(userEmail).delete();
+            data = newAdminData;
+          } else {
+            return res.status(404).json({ success: false, error: "Profile not found" });
+          }
+        } else {
+          return res.status(404).json({ success: false, error: "Profile not found" });
+        }
       }
     }
 
@@ -975,13 +1099,13 @@ router.get("/team", verifyToken, verifyAdmin, async (req, res) => {
 });
 
 // POST /api/admin/team/add
-// Add a user as admin by email (and password) — superadmin only
+// Add a user as admin by email (role-based, passwordless) — superadmin only
 router.post("/team/add", verifyToken, verifyAdmin, async (req, res) => {
   if (req.adminRole !== "superadmin") {
     return res.status(403).json({ error: "Superadmin only" });
   }
 
-  const { email, password, tenantId, role } = req.body;
+  const { email, tenantId, role } = req.body;
   const newRole = role === "superadmin" ? "superadmin" : "admin";
 
   if (!email || !email.trim()) {
@@ -993,35 +1117,27 @@ router.post("/team/add", verifyToken, verifyAdmin, async (req, res) => {
     let uid;
     let userData = { email: emailLower, name: "Admin" };
 
-    // Step 1: Check if user exists in Firebase Auth
+    // Step 1: Check if user exists in Firebase Auth (e.g., already signed in via Google)
     try {
       const userRecord = await admin.auth().getUserByEmail(emailLower);
       uid = userRecord.uid;
       userData.name = userRecord.displayName || "Admin";
-
-      // Update password if one was provided in the UI
-      if (password && password.trim().length >= 6) {
-        await admin.auth().updateUser(uid, { password });
-      }
     } catch (authErr) {
       if (authErr.code === "auth/user-not-found") {
-        // User doesn't exist -> Create them!
-        if (!password || password.trim().length < 6) {
-          return res.status(400).json({ error: "User does not exist. A password of at least 6 characters is required to create a new admin." });
-        }
-
-        const newUser = await admin.auth().createUser({
+        // User doesn't exist in Auth yet — store as pending admin
+        await db.collection("pendingAdmins").doc(emailLower).set({
           email: emailLower,
-          password: password,
-          displayName: "Admin"
-        });
-        uid = newUser.uid;
-
-        // Add them to the public users/ collection so they formally exist
-        await db.collection("users").doc(uid).set({
           name: "Admin",
-          email: emailLower,
-          createdAt: admin.firestore.FieldValue.serverTimestamp()
+          role: newRole,
+          tenantId: newRole === "superadmin" ? null : (tenantId || null),
+          addedBy: req.uid,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        return res.json({
+          success: true,
+          message: "Admin invitation saved. They will be activated when they first sign in with Google using this email.",
+          admin: { email: emailLower, name: "Admin", role: newRole, pending: true },
         });
       } else {
         throw authErr;
@@ -1031,7 +1147,6 @@ router.post("/team/add", verifyToken, verifyAdmin, async (req, res) => {
     // Step 2: Check if already an admin
     const existingAdmin = await db.collection("adminUsers").doc(uid).get();
     if (existingAdmin.exists) {
-      // If we just provided a password, its updated. If we also provided a role, let's update it if needed.
       const existingData = existingAdmin.data();
       if (existingData.role !== newRole) {
         await db.collection("adminUsers").doc(uid).update({ role: newRole });

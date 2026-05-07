@@ -114,7 +114,6 @@ const ConfirmDialog = ({ admin, onCancel, onConfirm, loading }) => (
 // ─── Add Admin Modal ──────────────────────────────────────────────────────────
 const AddAdminModal = ({ onClose, onSuccess, currentUser, tenants }) => {
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [role, setRole] = useState("admin");
   const [tenantId, setTenantId] = useState("none");
   const [error, setError] = useState("");
@@ -132,9 +131,6 @@ const AddAdminModal = ({ onClose, onSuccess, currentUser, tenants }) => {
     try {
       const token = await currentUser.getIdToken();
       const payload = { email: trimmed, role };
-      if (password.trim()) {
-        payload.password = password.trim();
-      }
       if (role === "admin" && tenantId !== "none" && tenantId) {
         payload.tenantId = tenantId;
       }
@@ -175,10 +171,10 @@ const AddAdminModal = ({ onClose, onSuccess, currentUser, tenants }) => {
         </div>
 
         <p style={{ margin: "0 0 16px", fontSize: 13, color: "#6B7280", lineHeight: 1.6 }}>
-          Set a password for the new admin so they can log in via the Staff Portal. If they already have an account, this updates their password.
+          Enter the admin's email. They will log in via Google Sign-In — no password needed.
         </p>
 
-        <div style={{ position: "relative", marginBottom: 12 }}>
+        <div style={{ position: "relative", marginBottom: 16 }}>
           <EmailIcon style={{
             position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)",
             color: "#9CA3AF", fontSize: 20, pointerEvents: "none",
@@ -187,6 +183,7 @@ const AddAdminModal = ({ onClose, onSuccess, currentUser, tenants }) => {
             type="email"
             value={email}
             onChange={(e) => { setEmail(e.target.value); setError(""); }}
+            onKeyDown={(e) => e.key === "Enter" && handleAdd()}
             placeholder="Email address"
             style={{
               width: "100%", padding: "12px 12px 12px 42px",
@@ -198,27 +195,7 @@ const AddAdminModal = ({ onClose, onSuccess, currentUser, tenants }) => {
           />
         </div>
 
-        <div style={{ position: "relative", marginBottom: 16 }}>
-          <LockIcon style={{
-            position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)",
-            color: "#9CA3AF", fontSize: 20, pointerEvents: "none",
-          }} />
-          <input
-            type="text"
-            value={password}
-            onChange={(e) => { setPassword(e.target.value); setError(""); }}
-            onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-            placeholder="Password (minimum 6 characters)"
-            style={{
-              width: "100%", padding: "12px 12px 12px 42px",
-              border: `1.5px solid ${error && error.includes("password") ? "#FECACA" : "#E5E7EB"}`,
-              borderRadius: 8, fontSize: 14, color: "#1A1A1A",
-              outline: "none", boxSizing: "border-box",
-            }}
-          />
-        </div>
-
-        <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
+        <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
           <TextField
             select
             fullWidth
@@ -251,6 +228,16 @@ const AddAdminModal = ({ onClose, onSuccess, currentUser, tenants }) => {
               ))}
             </TextField>
           )}
+        </div>
+
+        {/* Role info badge */}
+        <div style={{
+          background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 8,
+          padding: "10px 14px", marginBottom: 16, display: "flex", alignItems: "center", gap: 8,
+        }}>
+          <span style={{ fontSize: 12, color: "#15803D", fontWeight: 600 }}>
+            🔐 No password needed — Admin will sign in using Google with this email
+          </span>
         </div>
 
         {error && (

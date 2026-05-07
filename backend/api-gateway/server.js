@@ -65,6 +65,7 @@ app.use("/api/auth", makeProxy(AUTH_SERVICE_URL));
 app.use("/api/user", makeProxy(USER_SERVICE_URL));
 app.use("/api/vehicle", makeProxy(VEHICLE_SERVICE_URL));
 app.use("/api/booking", makeProxy(BOOKING_SERVICE_URL));
+app.use("/api/bookings", makeProxy(BOOKING_SERVICE_URL));
 app.use("/api/analytics", makeProxy(ANALYTICS_SERVICE_URL));
 app.use("/api/admin",     makeProxy(ADMIN_SERVICE_URL));
 

@@ -41,6 +41,21 @@ export default function LandingPage() {
     return () => observer.disconnect();
   }, []);
 
+  const [currentSlide, setCurrentSlide] = useState(0);
+  const testimonials = [
+    { name: "Rahul S.", role: "Nexon EV Owner", text: "EV Saarthi made finding reliable chargers so easy! The Green Points system is just the cherry on top. I've saved thousands." },
+    { name: "Priya M.", role: "Tiago EV Driver", text: "Booking a slot in advance saves me from waiting in long queues. The interface is stunning and so simple to use." },
+    { name: "Amit K.", role: "MG ZS EV Owner", text: "I love how I can see exactly how much I'm saving compared to petrol. The rewards catalog is actually useful too!" },
+    { name: "Sneha R.", role: "Ather 450X Rider", text: "Best app for EV owners in India hands down. Customer support is fantastic and the app never crashes." }
+  ];
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentSlide(s => (s + 1) % testimonials.length);
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [testimonials.length]);
+
   const animClass = (id, base = "fadeUp") =>
     visible[id] ? `lp-${base} lp-visible` : `lp-${base}`;
 
@@ -180,6 +195,48 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* ═══ REVIEWS CAROUSEL ═══ */}
+      <section id="reviews" className="lp-section">
+        <div className="lp-container">
+          <div id="rev-head" data-animate className={animClass("rev-head")}>
+            <p className="lp-section-tag">Testimonials</p>
+            <h2 className="lp-section-title">Loved by EV Owners</h2>
+            <p className="lp-section-sub">Don't just take our word for it. See what our community is saying.</p>
+          </div>
+
+          <div className="lp-carousel-wrap">
+            <div className="lp-carousel-inner" style={{ transform: `translateX(-${currentSlide * 100}%)` }}>
+              {testimonials.map((t, i) => (
+                <div key={i} className="lp-carousel-slide">
+                  <div className="lp-review-card">
+                    <div className="lp-review-stars">
+                      {[1, 2, 3, 4, 5].map(s => <StarIcon key={s} style={{ color: "#EAB308", fontSize: 20 }} />)}
+                    </div>
+                    <p className="lp-review-text">"{t.text}"</p>
+                    <div className="lp-review-author">
+                      <div className="lp-review-avatar">{t.name.charAt(0)}</div>
+                      <div>
+                        <div className="lp-review-name">{t.name}</div>
+                        <div className="lp-review-role">{t.role}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="lp-carousel-dots">
+              {testimonials.map((_, i) => (
+                <div
+                  key={i}
+                  className={`lp-dot ${i === currentSlide ? "lp-dot-active" : ""}`}
+                  onClick={() => setCurrentSlide(i)}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* ═══ CTA ═══ */}
       <section className="lp-section lp-cta-section">
         <div className="lp-container" style={{ textAlign: "center" }}>
@@ -314,6 +371,21 @@ const landingCSS = `
   .lp-stat-icon svg { font-size:32px !important; }
   .lp-stat-val { font-size:36px;font-weight:900;color:#fff;letter-spacing:-1px; }
   .lp-stat-label { font-size:13px;font-weight:700;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:1px;margin-top:4px; }
+
+  /* CAROUSEL */
+  .lp-carousel-wrap { position:relative;max-width:800px;margin:0 auto;overflow:hidden;padding:20px 0; }
+  .lp-carousel-inner { display:flex;transition:transform 0.6s cubic-bezier(0.25, 1, 0.5, 1); }
+  .lp-carousel-slide { min-width:100%;padding:0 20px;box-sizing:border-box; }
+  .lp-review-card { background:#fff;border-radius:24px;padding:40px;border:1px solid #f3f4f6;box-shadow:0 12px 32px rgba(0,0,0,.04);text-align:center; }
+  .lp-review-stars { display:flex;justify-content:center;gap:4px;margin-bottom:20px; }
+  .lp-review-text { font-size:18px;color:#374151;line-height:1.6;font-style:italic;margin-bottom:32px;font-weight:500; }
+  .lp-review-author { display:flex;align-items:center;justify-content:center;gap:16px;text-align:left; }
+  .lp-review-avatar { width:48px;height:48px;background:linear-gradient(135deg,#16A34A,#22c55e);border-radius:50%;color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:800; }
+  .lp-review-name { font-size:16px;font-weight:800;color:#1A1A1A; }
+  .lp-review-role { font-size:13px;color:#6B7280;font-weight:500; }
+  .lp-carousel-dots { display:flex;justify-content:center;gap:8px;margin-top:32px; }
+  .lp-dot { width:10px;height:10px;border-radius:50%;background:#e5e7eb;cursor:pointer;transition:all 0.3s; }
+  .lp-dot-active { background:#16A34A;transform:scale(1.3); }
 
   /* CTA */
   .lp-cta-section { background:#fff;padding:100px 24px; }

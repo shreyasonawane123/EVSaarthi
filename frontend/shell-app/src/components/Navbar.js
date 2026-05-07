@@ -13,7 +13,8 @@ import {
   Logout as LogoutIcon,
   Menu as MenuIcon,
   Close as CloseIcon,
-  Dashboard as DashboardIcon
+  Dashboard as DashboardIcon,
+  Payment as PaymentIcon
 } from '@mui/icons-material';
 import { 
   Avatar, 
@@ -55,6 +56,7 @@ const Navbar = () => {
     { label: 'Bookings', path: '/booking', icon: <CalendarMonthIcon fontSize="small" /> },
     { label: 'Redeem Points', path: '/rewards', icon: <EmojiEventsIcon fontSize="small" /> },
     { label: 'Rewards', path: '/points-history', icon: <EmojiEventsIcon fontSize="small" /> },
+    { label: 'Payments', path: '/payments', icon: <PaymentIcon fontSize="small" /> },
   ];
 
   const isActive = (path) => location.pathname === path;
