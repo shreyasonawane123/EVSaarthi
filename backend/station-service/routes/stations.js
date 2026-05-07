@@ -391,8 +391,20 @@ router.get("/:id/slots", async (req, res) => {
       .get();
 
     const slots = [];
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const currentHHMM = now.toTimeString().substring(0, 5); // "HH:MM"
+
     slotsSnapshot.forEach(doc => {
-      slots.push(doc.data().time);
+      const slotData = doc.data();
+      // If requested date is today, only show future times
+      if (date === todayStr) {
+        if (slotData.time > currentHHMM) {
+          slots.push(slotData.time);
+        }
+      } else {
+        slots.push(slotData.time);
+      }
     });
 
     // Sort chronologically

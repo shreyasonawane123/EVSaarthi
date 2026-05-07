@@ -123,6 +123,11 @@ router.post("/payment/verify", verifyToken, async (req, res) => {
       transaction.set(bookingRef, bookingData);
       transaction.update(stationRef, { availableSlots: station.availableSlots - 1, updatedAt: now });
 
+      // ── NEW: Mark specific slot as booked ──
+      const slotId = `${slotDate}_${slotTime}`;
+      const slotRef = db.collection("stations").doc(stationId).collection("slots").doc(slotId);
+      transaction.update(slotRef, { status: "booked", updatedAt: now });
+
       return { bookingId: bookingRef.id, station };
     });
 

@@ -14,7 +14,6 @@ import {
   Lock as LockIcon,
   Nature as NatureIcon
 } from '@mui/icons-material';
-import ReCAPTCHA from "react-google-recaptcha";
 
 const API = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
@@ -24,7 +23,7 @@ const LoginPage = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [showStaffLogin, setShowStaffLogin] = useState(false);
-  
+
   // Referral System State
   const [showReferralModal, setShowReferralModal] = useState(false);
   const [newUserData, setNewUserData] = useState(null); // { user, token }
@@ -36,7 +35,7 @@ const LoginPage = () => {
   // CAPTCHA state
   const [recaptchaToken, setRecaptchaToken] = useState(null);
   const recaptchaRef = React.useRef(null);
-  
+
   const { isLoggedIn } = useAuth();
   const navigate = useNavigate();
 
@@ -47,7 +46,7 @@ const LoginPage = () => {
       let adminDoc = await getDoc(doc(db, "adminUsers", user.uid));
       let role = "admin";
       let name = "";
-      
+
       if (adminDoc.exists()) {
         const data = adminDoc.data();
         role = data.role || "admin";
@@ -101,10 +100,6 @@ const LoginPage = () => {
   };
 
   const handleGoogleLogin = async () => {
-    if (!recaptchaToken) {
-      setError("Please complete the reCAPTCHA security check.");
-      return;
-    }
     setLoading(true);
     setCheckingProfile(true); // START CHECKING
     setError("");
@@ -130,7 +125,7 @@ const LoginPage = () => {
           // NEW USER → show referral modal
           setNewUserData({ user, token });
           setShowReferralModal(true);
-          setLoading(false); 
+          setLoading(false);
           setCheckingProfile(false); // FINISHED (modal will handle the rest)
           return;
         } else {
