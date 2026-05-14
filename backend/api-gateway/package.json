@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "postinstall": "node -e \"const fs=require('fs'); fs.cpSync('node_modules', '../node_modules', {recursive:true, force:true});\""
   },
   "dependencies": {
     "cors": "^2.8.5",
