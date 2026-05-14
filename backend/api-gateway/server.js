@@ -2,7 +2,9 @@
 // EV Saarthi — API Gateway (port 5000)
 // Proxies all /api/* requests to the correct microservice
 
-require("dotenv").config();
+require("dotenv").config({
+  path: require("path").resolve(__dirname, "../.env")
+});
 const express = require("express");
 const cors = require("cors");
 const { createProxyMiddleware } = require("http-proxy-middleware");
@@ -39,54 +41,100 @@ const VEHICLE_SERVICE_URL = process.env.VEHICLE_SERVICE_URL || "http://localhost
 const ADMIN_SERVICE_URL   = process.env.ADMIN_SERVICE_URL   || "http://localhost:5006";
 const POINTS_SERVICE_URL  = process.env.POINTS_SERVICE_URL  || "http://localhost:5008";
 
-// ── Proxy helpers ─────────────────────────────────────────────
-const makeProxy = (target, pathRewrite) => {
-  const options = {
-    target,
-    changeOrigin: true,
-    on: {
-      error: (err, req, res) => {
-        console.error(`[Gateway] Proxy error → ${target}:`, err.message);
-        res.status(502).json({
-          error: "Service unavailable",
-          service: target,
-        });
+// ── Route Setup ────────────────────────────────────────────────
+const isProduction = process.env.NODE_ENV === "production" || process.env.RENDER === "true";
+
+if (isProduction) {
+  console.log("🚀 Running in MONOLITH Production Mode");
+  
+  // Mount routes directly from sibling folders
+  app.use("/api/auth", require("../auth-service/routes/auth"));
+  app.use("/api/user", require("../user-service/routes/user"));
+  app.use("/api/vehicle", require("../vehicle-service/routes/vehicle"));
+  
+  // Station Service Routes
+  app.use("/api/stations", require("../station-service/routes/stations"));
+  app.use("/api/operators", require("../station-service/routes/operators"));
+  
+  // Booking Service Routes
+  const bookingRoutes = require("../booking-service/routes/booking");
+  app.use("/api/booking", bookingRoutes);
+  app.use("/api/bookings", bookingRoutes);
+  
+  // Points Service Routes
+  app.use("/api/points", require("../points-service/routes/points"));
+  app.use("/api/points", require("../points-service/routes/referral"));
+  app.use("/api/points", require("../points-service/routes/accessories"));
+  
+  // Admin Service Routes
+  const adminRoutes = require("../admin-service/routes/admin");
+  app.use("/api/admin", adminRoutes);
+  
+  // Background Workers / Initializers
+  const { startSlotReleaseWorker } = require("../booking-service/utils/slotReleaseWorker");
+  startSlotReleaseWorker(30000); // from booking-service
+  
+  // Points initialization
+  const { db, admin } = require("../points-service/config/firebase");
+  db.collection("pointsConfig").doc("settings").get().then((doc) => {
+    if (!doc.exists) {
+      db.collection("pointsConfig").doc("settings").set({
+        pointValueInRupees: 0.10, minRedemptionPoints: 500, onboardingBonus: 100,
+        sessionCompletionBonus: 50, reviewBonus: 20, referralBonus: 200,
+        purchasePricePerPoint: 0.50, minPointsPurchase: 1000, pointsExpiryDays: 365,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(), updatedBy: "system"
+      });
+    }
+  });
+} else {
+  console.log("🔧 Running in MICROSERVICE Local Mode");
+  // ── Proxy helpers ─────────────────────────────────────────────
+  const makeProxy = (target, pathRewrite) => {
+    const options = {
+      target,
+      changeOrigin: true,
+      on: {
+        error: (err, req, res) => {
+          console.error(`[Gateway] Proxy error → ${target}:`, err.message);
+          res.status(502).json({
+            error: "Service unavailable",
+            service: target,
+          });
+        },
       },
-    },
+    };
+    if (pathRewrite) {
+      options.pathRewrite = pathRewrite;
+    }
+    return createProxyMiddleware(options);
   };
-  if (pathRewrite) {
-    options.pathRewrite = pathRewrite;
-  }
-  return createProxyMiddleware(options);
-};
 
-// ── Route → Service mappings ───────────────────────────────────
-app.use("/api/auth", makeProxy(AUTH_SERVICE_URL));
-app.use("/api/user", makeProxy(USER_SERVICE_URL));
-app.use("/api/vehicle", makeProxy(VEHICLE_SERVICE_URL));
-app.use("/api/booking", makeProxy(BOOKING_SERVICE_URL));
-app.use("/api/bookings", makeProxy(BOOKING_SERVICE_URL));
-app.use("/api/analytics", makeProxy(ANALYTICS_SERVICE_URL));
-app.use("/api/admin",     makeProxy(ADMIN_SERVICE_URL));
+  // ── Route → Service mappings ───────────────────────────────────
+  app.use("/api/auth", makeProxy(AUTH_SERVICE_URL));
+  app.use("/api/user", makeProxy(USER_SERVICE_URL));
+  app.use("/api/vehicle", makeProxy(VEHICLE_SERVICE_URL));
+  app.use("/api/booking", makeProxy(BOOKING_SERVICE_URL));
+  app.use("/api/bookings", makeProxy(BOOKING_SERVICE_URL));
+  app.use("/api/analytics", makeProxy(ANALYTICS_SERVICE_URL));
+  app.use("/api/admin",     makeProxy(ADMIN_SERVICE_URL));
 
-// These services expect the FULL path starting with /api
-app.use("/api/stations", createProxyMiddleware({ 
-  target: STATION_SERVICE_URL, 
-  pathRewrite: (path, req) => req.originalUrl,
-  changeOrigin: true 
-}));
+  // These services expect the FULL path starting with /api
+  app.use("/api/stations", createProxyMiddleware({ 
+    target: STATION_SERVICE_URL, 
+    pathRewrite: (path, req) => req.originalUrl,
+    changeOrigin: true 
+  }));
 
-app.use("/api/operators", createProxyMiddleware({ 
-  target: STATION_SERVICE_URL, 
-  pathRewrite: (path, req) => {
-    // req.originalUrl contains the full path including /api/operators
-    // We want to make sure the target receives exactly that.
-    return req.originalUrl.split("?")[0]; // Pass path only, middleware handles query
-  },
-  changeOrigin: true 
-}));
+  app.use("/api/operators", createProxyMiddleware({ 
+    target: STATION_SERVICE_URL, 
+    pathRewrite: (path, req) => {
+      return req.originalUrl.split("?")[0];
+    },
+    changeOrigin: true 
+  }));
 
-app.use("/api/points", makeProxy(POINTS_SERVICE_URL, (path, req) => req.originalUrl));
+  app.use("/api/points", makeProxy(POINTS_SERVICE_URL, (path, req) => req.originalUrl));
+}
 
 // ── Gateway health check ────────────────────────────────────────
 app.get("/api/health", (req, res) => {

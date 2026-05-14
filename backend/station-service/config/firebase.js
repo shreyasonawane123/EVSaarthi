@@ -1,8 +1,17 @@
 // backend/station-service/config/firebase.js
 const admin = require("firebase-admin");
-const serviceAccount = require("../serviceAccountKey.json");
 
 if (!admin.apps.length) {
+  let serviceAccount;
+
+  if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
+    // Production (Render): read credentials from environment variable
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
+  } else {
+    // Local development: fallback to serviceAccountKey.json file on disk
+    serviceAccount = require("../serviceAccountKey.json");
+  }
+
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
     projectId: process.env.FIREBASE_PROJECT_ID,
